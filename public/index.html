@@ -134,28 +134,28 @@
         </div>
         <div class="dashboard-grid">
           <div class="stats-row">
-            <div class="stat-card">
+            <div class="stat-card purple-hover">
               <div class="stat-icon purple-glow">
                 <!-- Stacked pages / notes -->
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/></svg>
               </div>
               <div class="stat-info"><span id="stat-notes" class="stat-number">0</span><span class="stat-label">Total Notes</span></div>
             </div>
-            <div class="stat-card">
+            <div class="stat-card yellow-hover">
               <div class="stat-icon yellow-glow">
                 <!-- Unfinished list with pending items -->
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><circle cx="4" cy="6" r="1.5"/><circle cx="4" cy="12" r="1.5"/><circle cx="4" cy="18" r="1.5"/></svg>
               </div>
               <div class="stat-info"><span id="stat-tasks" class="stat-number">0</span><span class="stat-label">Open Tasks</span></div>
             </div>
-            <div class="stat-card">
+            <div class="stat-card red-hover">
               <div class="stat-icon red-glow">
                 <!-- Two opposing arrows — contradiction / conflict -->
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 4l4 4-4 4"/><path d="M3 12V8a4 4 0 0 1 4-4h14"/><path d="M7 20l-4-4 4-4"/><path d="M21 12v4a4 4 0 0 1-4 4H3"/></svg>
               </div>
               <div class="stat-info"><span id="stat-conflicts" class="stat-number">0</span><span class="stat-label">Conflicts</span></div>
             </div>
-            <div class="stat-card">
+            <div class="stat-card cyan-hover">
               <div class="stat-icon cyan-glow">
                 <!-- Seedling sprouting — growth from knowledge -->
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22V12"/><path d="M12 12C12 12 7 10 5 6c4 0 7 2 7 6z"/><path d="M12 12c0 0 5-2 7-6-4 0-7 2-7 6z"/><path d="M5 20h14"/></svg>
@@ -196,7 +196,13 @@
                 Agent Activity Logs
               </h3>
               <div id="activity-timeline" class="activity-timeline">
-                <div class="timeline-item"><span class="time">Just now</span><span class="event"><b>[Ingestion Agent]</b> Seeding initial mock database configuration.</span></div>
+                <div class="timeline-item" style="--agent-color: #10b981;">
+                  <span class="time">Just now</span>
+                  <span class="event">
+                    <span class="agent-badge" style="color: #10b981; background: #10b98110; border: 1px solid #10b9812c;">Ingestion</span>
+                    <span class="event-text">Seeding initial mock database configuration.</span>
+                  </span>
+                </div>
               </div>
             </div>
           </div>

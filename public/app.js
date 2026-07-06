@@ -39,13 +39,45 @@ function apiFetch(url, options = {}) {
 // Log activity feed locally on the dashboard console
 function logActivity(agent, message) {
   const timeline = document.getElementById('activity-timeline');
+  if (!timeline) return;
+
   const item = document.createElement('div');
+  
+  // Clean agent suffix for a more compact badge label
+  const cleanAgent = agent.replace(/\s+Agent$/, '').trim();
+  
+  // Map agent names to specific theme colors
+  let color = '#71717a'; // Default slate gray
+  const name = cleanAgent.toLowerCase();
+  
+  if (name.includes('ingestion')) {
+    color = '#10b981'; // Green
+  } else if (name.includes('conflict')) {
+    color = '#ef4444'; // Red
+  } else if (name.includes('sprout') || name.includes('concept')) {
+    color = '#a78bfa'; // Purple
+  } else if (name.includes('chat')) {
+    color = '#60a5fa'; // Blue
+  } else if (name.includes('action')) {
+    color = '#eab308'; // Yellow
+  } else if (name.includes('clipper') || name.includes('web')) {
+    color = '#22d3ee'; // Cyan
+  } else if (name.includes('voice') || name.includes('recorder')) {
+    color = '#ec4899'; // Pink
+  } else if (name.includes('database') || name.includes('migration') || name.includes('system')) {
+    color = '#94a3b8'; // Slate
+  }
+
   item.className = 'timeline-item';
+  item.style.setProperty('--agent-color', color);
   
   const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   item.innerHTML = `
     <span class="time">${timeStr}</span>
-    <span class="event"><b>[${agent}]</b> ${message}</span>
+    <span class="event">
+      <span class="agent-badge" style="color:${color}; background:${color}10; border: 1px solid ${color}2c;">${cleanAgent}</span>
+      <span class="event-text">${message}</span>
+    </span>
   `;
   timeline.insertBefore(item, timeline.firstChild);
 }
