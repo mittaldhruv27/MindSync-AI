@@ -68,13 +68,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   // Load database content
   await loadAllData();
   
-  // Canvas physics resize
-  window.addEventListener('resize', () => {
-    if (graphCanvas) {
-      graphCanvas.width = graphCanvas.parentElement.clientWidth;
-      graphCanvas.height = graphCanvas.parentElement.clientHeight;
-    }
-  });
+
 });
 
 async function loadAllData() {
@@ -101,9 +95,7 @@ async function loadAllData() {
     // Load daily briefing note
     renderDailyBriefing(allNotes);
 
-    // Fetch and initialize Graph
-    const graphData = await apiFetch('/api/graph');
-    initGraph(graphData.nodes, graphData.edges);
+
 
   } catch (err) {
     console.error('Failed to load dashboard data:', err);
@@ -146,13 +138,7 @@ function initNavigation() {
         targetSection.classList.add('active');
       }
 
-      // Special canvas graph trigger
-      if (panelId === 'graph' && graphCanvas) {
-        setTimeout(() => {
-          graphCanvas.width = graphCanvas.parentElement.clientWidth;
-          graphCanvas.height = graphCanvas.parentElement.clientHeight;
-        }, 100);
-      }
+
     });
   });
 }
@@ -183,6 +169,24 @@ function initSettings() {
 let isSemanticSearch = false;
 
 function initNotesModule() {
+  // Delete all notes trigger
+  const btnDeleteAll = document.getElementById('btn-delete-all-notes');
+  if (btnDeleteAll) {
+    btnDeleteAll.addEventListener('click', async () => {
+      if (confirm('Are you sure you want to delete all notes? This will also clear all tasks, conflicts, and sprouts.')) {
+        try {
+          await apiFetch('/api/notes', {
+            method: 'DELETE'
+          });
+          logActivity('System', 'All notes and derived knowledge have been cleared.');
+          loadAllData();
+        } catch (err) {
+          alert('Failed to delete notes: ' + err.message);
+        }
+      }
+    });
+  }
+
   // Add note trigger
   document.getElementById('btn-add-note').addEventListener('click', () => {
     document.getElementById('add-note-modal').classList.remove('hidden');
@@ -284,6 +288,69 @@ function initNotesModule() {
     }
   });
 
+  // PDF Upload triggers
+  const pdfFileInput = document.getElementById('pdf-file-input');
+  const btnTriggerUpload = document.getElementById('btn-trigger-pdf-upload');
+  const pdfFileNameSpan = document.getElementById('pdf-file-name');
+  const btnUploadPdf = document.getElementById('btn-upload-pdf');
+
+  btnTriggerUpload.addEventListener('click', () => {
+    pdfFileInput.click();
+  });
+
+  pdfFileInput.addEventListener('change', () => {
+    const file = pdfFileInput.files[0];
+    if (file) {
+      pdfFileNameSpan.innerText = file.name;
+      btnUploadPdf.classList.remove('hidden');
+    } else {
+      pdfFileNameSpan.innerText = 'No file selected';
+      btnUploadPdf.classList.add('hidden');
+    }
+  });
+
+  btnUploadPdf.addEventListener('click', async () => {
+    const file = pdfFileInput.files[0];
+    if (!file) return;
+
+    btnUploadPdf.disabled = true;
+    btnUploadPdf.innerText = 'Analyzing...';
+    logActivity('PDF Summarizer', `Reading PDF file: ${file.name}`);
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const base64Data = reader.result;
+        logActivity('PDF Summarizer', `Uploading PDF payload to AI agent...`);
+        
+        await apiFetch('/api/notes/upload-pdf', {
+          method: 'POST',
+          body: JSON.stringify({
+            fileName: file.name,
+            base64Data: base64Data
+          })
+        });
+
+        logActivity('PDF Summarizer', `PDF successfully processed and summary note created.`);
+        
+        // Reset uploader state
+        pdfFileInput.value = '';
+        pdfFileNameSpan.innerText = 'No file selected';
+        btnUploadPdf.classList.add('hidden');
+        btnUploadPdf.disabled = false;
+        btnUploadPdf.innerText = 'Summarize';
+
+        // Reload data
+        setTimeout(loadAllData, 1200);
+      } catch (err) {
+        alert('PDF Summarizer error: ' + err.message);
+        btnUploadPdf.disabled = false;
+        btnUploadPdf.innerText = 'Summarize';
+      }
+    };
+    reader.readAsDataURL(file);
+  });
+
   // Detail Modal close
   document.getElementById('btn-close-modal').addEventListener('click', () => {
     document.getElementById('note-modal').classList.add('hidden');
@@ -321,6 +388,38 @@ function renderNotesList(notes) {
   });
 }
 
+function formatNoteContent(content) {
+  if (!content) return '';
+  
+  let escaped = content
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+    
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  escaped = escaped.replace(urlRegex, (url) => {
+    let cleanUrl = url;
+    let suffix = '';
+    if (url.endsWith('.') || url.endsWith(',')) {
+      cleanUrl = url.slice(0, -1);
+      suffix = url.slice(-1);
+    }
+    return `<a href="${cleanUrl}" target="_blank" style="color:var(--accent); text-decoration:underline; font-weight:500;">${cleanUrl}</a>${suffix}`;
+  });
+  
+  escaped = escaped.replace(/^### (.*$)/gim, '<h3 style="margin-top:16px; margin-bottom:8px; color:var(--text); font-weight:600;">$1</h3>');
+  escaped = escaped.replace(/^## (.*$)/gim, '<h2 style="margin-top:20px; margin-bottom:10px; color:var(--text); font-weight:600;">$1</h2>');
+  escaped = escaped.replace(/^# (.*$)/gim, '<h1 style="margin-top:24px; margin-bottom:12px; color:var(--text); font-weight:600;">$1</h1>');
+  
+  escaped = escaped.replace(/^- (.*$)/gim, '<li style="margin-left:20px; margin-bottom:8px; color:var(--text-secondary); list-style-type: disc;">$1</li>');
+  
+  escaped = escaped.replace(/\n/g, '<br>');
+  
+  return escaped;
+}
+
 async function showFullNote(id) {
   try {
     const note = await apiFetch(`/api/notes/${id}`);
@@ -328,7 +427,7 @@ async function showFullNote(id) {
     document.getElementById('modal-note-title').innerText = note.title;
     document.getElementById('modal-note-date').innerText = new Date(note.createdAt).toLocaleString();
     document.getElementById('modal-note-summary').innerText = note.summary || 'Summary not processed yet.';
-    document.getElementById('modal-note-content').innerText = note.content;
+    document.getElementById('modal-note-content').innerHTML = formatNoteContent(note.content);
 
     const tagsRow = document.getElementById('modal-note-tags');
     tagsRow.innerHTML = '';
@@ -423,304 +522,7 @@ document.getElementById('btn-refresh-digest').addEventListener('click', async ()
   }
 });
 
-// --- MODULE 4: KNOWLEDGE GRAPH ---
-let graphNodes = [];
-let graphEdges = [];
-let graphCanvas = null;
-let graphCtx = null;
-let graphDraggingNode = null;
-let graphHoveredNode = null;
-let graphOffset = { x: 0, y: 0 };
-let graphZoom = 1.0;
-let isPanning = false;
-let panStart = { x: 0, y: 0 };
-let animationFrameId = null;
 
-function initGraph(nodes, edges) {
-  graphCanvas = document.getElementById('graph-canvas');
-  graphCtx = graphCanvas.getContext('2d');
-  
-  // Set dimensions
-  graphCanvas.width = graphCanvas.parentElement.clientWidth || 500;
-  graphCanvas.height = graphCanvas.parentElement.clientHeight || 400;
-
-  // Transform raw data to simulation coordinates
-  const width = graphCanvas.width;
-  const height = graphCanvas.height;
-  
-  graphNodes = nodes.map(n => {
-    const existing = graphNodes.find(old => old.id === n.id);
-    return {
-      id: n.id,
-      label: n.label,
-      tags: n.tags || [],
-      x: existing ? existing.x : width / 2 + (Math.random() - 0.5) * 200,
-      y: existing ? existing.y : height / 2 + (Math.random() - 0.5) * 200,
-      vx: 0,
-      vy: 0,
-      radius: 12
-    };
-  });
-
-  graphEdges = edges.map(e => ({
-    source: graphNodes.find(n => n.id === e.source),
-    target: graphNodes.find(n => n.id === e.target)
-  })).filter(e => e.source && e.target);
-
-  // Setup Event Listeners
-  graphCanvas.addEventListener('mousedown', onGraphMouseDown);
-  graphCanvas.addEventListener('mousemove', onGraphMouseMove);
-  graphCanvas.addEventListener('mouseup', onGraphMouseUp);
-  graphCanvas.addEventListener('wheel', onGraphWheel);
-  
-  document.getElementById('btn-reset-graph').addEventListener('click', () => {
-    graphOffset = { x: 0, y: 0 };
-    graphZoom = 1.0;
-  });
-
-  document.getElementById('btn-graph-view-full').addEventListener('click', () => {
-    if (graphHoveredNode) {
-      document.getElementById('graph-preview-panel').classList.add('hidden');
-      showFullNote(graphHoveredNode.id);
-    }
-  });
-
-  // Start Animation Loop
-  if (animationFrameId) cancelAnimationFrame(animationFrameId);
-  function tick() {
-    updateGraphPhysics();
-    drawGraph();
-    animationFrameId = requestAnimationFrame(tick);
-  }
-  tick();
-}
-
-function updateGraphPhysics() {
-  const width = graphCanvas.width;
-  const height = graphCanvas.height;
-  const kRep = 1500;
-  const kAtt = 0.05;
-  const targetDist = 140;
-  const gravity = 0.03;
-
-  // Repel all nodes
-  for (let i = 0; i < graphNodes.length; i++) {
-    const nodeA = graphNodes[i];
-    for (let j = i + 1; j < graphNodes.length; j++) {
-      const nodeB = graphNodes[j];
-      const dx = nodeB.x - nodeA.x;
-      const dy = nodeB.y - nodeA.y;
-      const dist = Math.sqrt(dx * dx + dy * dy) || 1.0;
-      
-      const force = kRep / (dist * dist);
-      const fx = (dx / dist) * force;
-      const fy = (dy / dist) * force;
-
-      if (nodeA !== graphDraggingNode) {
-        nodeA.vx -= fx;
-        nodeA.vy -= fy;
-      }
-      if (nodeB !== graphDraggingNode) {
-        nodeB.vx += fx;
-        nodeB.vy += fy;
-      }
-    }
-  }
-
-  // Edge contraction
-  for (const edge of graphEdges) {
-    const dx = edge.target.x - edge.source.x;
-    const dy = edge.target.y - edge.source.y;
-    const dist = Math.sqrt(dx * dx + dy * dy) || 1.0;
-    
-    const force = kAtt * (dist - targetDist);
-    const fx = (dx / dist) * force;
-    const fy = (dy / dist) * force;
-
-    if (edge.source !== graphDraggingNode) {
-      edge.source.vx += fx;
-      edge.source.vy += fy;
-    }
-    if (edge.target !== graphDraggingNode) {
-      edge.target.vx -= fx;
-      edge.target.vy -= fy;
-    }
-  }
-
-  // Damping & Center Gravity
-  for (const node of graphNodes) {
-    if (node === graphDraggingNode) continue;
-
-    const dx = width / 2 - node.x;
-    const dy = height / 2 - node.y;
-    node.vx += dx * gravity;
-    node.vy += dy * gravity;
-
-    node.x += node.vx;
-    node.y += node.vy;
-
-    node.vx *= 0.85;
-    node.vy *= 0.85;
-  }
-}
-
-function drawGraph() {
-  if (!graphCtx) return;
-  graphCtx.clearRect(0, 0, graphCanvas.width, graphCanvas.height);
-  
-  graphCtx.save();
-  graphCtx.translate(graphOffset.x, graphOffset.y);
-  graphCtx.scale(graphZoom, graphZoom);
-
-  // Draw Edges
-  graphCtx.lineWidth = 1.5;
-  for (const edge of graphEdges) {
-    const isRelatedToHovered = graphHoveredNode && (edge.source.id === graphHoveredNode.id || edge.target.id === graphHoveredNode.id);
-    if (isRelatedToHovered) {
-      graphCtx.strokeStyle = 'rgba(6, 182, 212, 0.6)';
-      graphCtx.lineWidth = 2.5;
-    } else {
-      graphCtx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
-      graphCtx.lineWidth = 1.5;
-    }
-    graphCtx.beginPath();
-    graphCtx.moveTo(edge.source.x, edge.source.y);
-    graphCtx.lineTo(edge.target.x, edge.target.y);
-    graphCtx.stroke();
-  }
-
-  // Draw Nodes
-  for (const node of graphNodes) {
-    const isHovered = graphHoveredNode && node.id === graphHoveredNode.id;
-    
-    // Draw background glowing aura
-    const rad = node.radius + (isHovered ? 8 : 4);
-    let grad = graphCtx.createRadialGradient(node.x, node.y, 2, node.x, node.y, rad);
-    if (isHovered) {
-      grad.addColorStop(0, 'rgba(6, 182, 212, 0.5)');
-      grad.addColorStop(1, 'rgba(6, 182, 212, 0)');
-    } else {
-      grad.addColorStop(0, 'rgba(124, 58, 237, 0.25)');
-      grad.addColorStop(1, 'rgba(124, 58, 237, 0)');
-    }
-    
-    graphCtx.fillStyle = grad;
-    graphCtx.beginPath();
-    graphCtx.arc(node.x, node.y, rad, 0, Math.PI * 2);
-    graphCtx.fill();
-
-    // Node core
-    graphCtx.fillStyle = isHovered ? '#06b6d4' : '#7c3aed';
-    graphCtx.beginPath();
-    graphCtx.arc(node.x, node.y, node.radius - 4, 0, Math.PI * 2);
-    graphCtx.fill();
-
-    // Node label
-    graphCtx.fillStyle = '#ffffff';
-    graphCtx.font = `${isHovered ? 'bold' : '500'} 11px Inter, sans-serif`;
-    graphCtx.textAlign = 'center';
-    graphCtx.textBaseline = 'top';
-    const textLabel = node.label.length > 20 ? node.label.substring(0, 18) + '..' : node.label;
-    graphCtx.fillText(textLabel, node.x, node.y + node.radius + 3);
-  }
-
-  graphCtx.restore();
-}
-
-function getCanvasMouseCoords(e) {
-  const rect = graphCanvas.getBoundingClientRect();
-  const screenX = e.clientX - rect.left;
-  const screenY = e.clientY - rect.top;
-  return {
-    x: (screenX - graphOffset.x) / graphZoom,
-    y: (screenY - graphOffset.y) / graphZoom
-  };
-}
-
-function onGraphMouseDown(e) {
-  const coords = getCanvasMouseCoords(e);
-  
-  // Check if click hits a node
-  const hit = graphNodes.find(node => {
-    const dx = node.x - coords.x;
-    const dy = node.y - coords.y;
-    return Math.sqrt(dx * dx + dy * dy) < node.radius + 5;
-  });
-
-  if (hit) {
-    graphDraggingNode = hit;
-    graphHoveredNode = hit;
-    displayGraphNodePreview(hit);
-  } else {
-    isPanning = true;
-    panStart = { x: e.clientX - graphOffset.x, y: e.clientY - graphOffset.y };
-  }
-}
-
-function onGraphMouseMove(e) {
-  const coords = getCanvasMouseCoords(e);
-
-  if (graphDraggingNode) {
-    graphDraggingNode.x = coords.x;
-    graphDraggingNode.y = coords.y;
-    graphDraggingNode.vx = 0;
-    graphDraggingNode.vy = 0;
-  } else if (isPanning) {
-    graphOffset.x = e.clientX - panStart.x;
-    graphOffset.y = e.clientY - panStart.y;
-  } else {
-    // Hover check
-    const hit = graphNodes.find(node => {
-      const dx = node.x - coords.x;
-      const dy = node.y - coords.y;
-      return Math.sqrt(dx * dx + dy * dy) < node.radius + 5;
-    });
-    
-    if (hit !== graphHoveredNode) {
-      graphHoveredNode = hit;
-      if (hit) {
-        displayGraphNodePreview(hit);
-      } else {
-        document.getElementById('graph-preview-panel').classList.add('hidden');
-      }
-    }
-  }
-}
-
-function onGraphMouseUp() {
-  graphDraggingNode = null;
-  isPanning = false;
-}
-
-function onGraphWheel(e) {
-  e.preventDefault();
-  const zoomFactor = 1.1;
-  if (e.deltaY < 0) {
-    graphZoom = Math.min(graphZoom * zoomFactor, 3.0);
-  } else {
-    graphZoom = Math.max(graphZoom / zoomFactor, 0.4);
-  }
-}
-
-function displayGraphNodePreview(node) {
-  const panel = document.getElementById('graph-preview-panel');
-  document.getElementById('graph-node-title').innerText = node.label;
-  
-  // Find note representation in state
-  const note = allNotes.find(n => n.id === node.id);
-  document.getElementById('graph-node-summary').innerText = note ? (note.summary || note.content.substring(0, 80) + '...') : '';
-  
-  const tagsRow = document.getElementById('graph-node-tags');
-  tagsRow.innerHTML = '';
-  (node.tags || []).forEach(t => {
-    const pill = document.createElement('span');
-    pill.className = 'tag-pill';
-    pill.innerText = t;
-    tagsRow.appendChild(pill);
-  });
-  
-  panel.classList.remove('hidden');
-}
 
 // --- MODULE 5: CHAT ---
 function initChatModule() {
