@@ -4,6 +4,7 @@ let allTasks = [];
 let allConflicts = [];
 let allSprouts = [];
 let allActions = [];
+let activeModalNote = null;
 
 // Local authorization token storage
 let apiSecret = localStorage.getItem('mindsync_secret') || 'mindsync_secret_passphrase_2026';
@@ -68,13 +69,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   // Load database content
   await loadAllData();
   
-  // Canvas physics resize
-  window.addEventListener('resize', () => {
-    if (graphCanvas) {
-      graphCanvas.width = graphCanvas.parentElement.clientWidth;
-      graphCanvas.height = graphCanvas.parentElement.clientHeight;
-    }
-  });
+
 });
 
 async function loadAllData() {
@@ -101,9 +96,7 @@ async function loadAllData() {
     // Load daily briefing note
     renderDailyBriefing(allNotes);
 
-    // Fetch and initialize Graph
-    const graphData = await apiFetch('/api/graph');
-    initGraph(graphData.nodes, graphData.edges);
+
 
   } catch (err) {
     console.error('Failed to load dashboard data:', err);
@@ -146,13 +139,7 @@ function initNavigation() {
         targetSection.classList.add('active');
       }
 
-      // Special canvas graph trigger
-      if (panelId === 'graph' && graphCanvas) {
-        setTimeout(() => {
-          graphCanvas.width = graphCanvas.parentElement.clientWidth;
-          graphCanvas.height = graphCanvas.parentElement.clientHeight;
-        }, 100);
-      }
+
     });
   });
 }
@@ -161,20 +148,46 @@ function initNavigation() {
 function initSettings() {
   const modal = document.getElementById('settings-modal');
   
-  document.getElementById('btn-show-settings').addEventListener('click', () => {
+  document.getElementById('btn-show-settings').addEventListener('click', async () => {
     modal.classList.remove('hidden');
+    try {
+      const settings = await apiFetch('/api/settings');
+      document.getElementById('settings-smtp-host').value = settings.smtpHost || '';
+      document.getElementById('settings-smtp-port').value = settings.smtpPort || '587';
+      document.getElementById('settings-smtp-user').value = settings.smtpUser || '';
+      document.getElementById('settings-smtp-pass').value = settings.smtpPass || '';
+    } catch (err) {
+      console.error('Failed to load SMTP settings:', err);
+    }
   });
+  
   document.getElementById('btn-close-settings').addEventListener('click', () => {
     modal.classList.add('hidden');
   });
-  document.getElementById('btn-save-settings').addEventListener('click', () => {
+  
+  document.getElementById('btn-save-settings').addEventListener('click', async () => {
     const inputVal = document.getElementById('settings-token').value.trim();
     if (inputVal) {
       apiSecret = inputVal;
       localStorage.setItem('mindsync_secret', apiSecret);
       logActivity('Settings', 'Bearer token authorization passphrase updated.');
+    }
+    
+    const smtpHost = document.getElementById('settings-smtp-host').value.trim();
+    const smtpPort = document.getElementById('settings-smtp-port').value.trim();
+    const smtpUser = document.getElementById('settings-smtp-user').value.trim();
+    const smtpPass = document.getElementById('settings-smtp-pass').value.trim();
+    
+    try {
+      await apiFetch('/api/settings', {
+        method: 'POST',
+        body: JSON.stringify({ smtpHost, smtpPort, smtpUser, smtpPass })
+      });
+      logActivity('Settings', 'Email SMTP credentials updated successfully.');
       loadAllData();
       modal.classList.add('hidden');
+    } catch (err) {
+      alert('Failed to save settings: ' + err.message);
     }
   });
 }
@@ -183,6 +196,24 @@ function initSettings() {
 let isSemanticSearch = false;
 
 function initNotesModule() {
+  // Delete all notes trigger
+  const btnDeleteAll = document.getElementById('btn-delete-all-notes');
+  if (btnDeleteAll) {
+    btnDeleteAll.addEventListener('click', async () => {
+      if (confirm('Are you sure you want to delete all notes? This will also clear all tasks, conflicts, and sprouts.')) {
+        try {
+          await apiFetch('/api/notes', {
+            method: 'DELETE'
+          });
+          logActivity('System', 'All notes and derived knowledge have been cleared.');
+          loadAllData();
+        } catch (err) {
+          alert('Failed to delete notes: ' + err.message);
+        }
+      }
+    });
+  }
+
   // Add note trigger
   document.getElementById('btn-add-note').addEventListener('click', () => {
     document.getElementById('add-note-modal').classList.remove('hidden');
@@ -284,6 +315,69 @@ function initNotesModule() {
     }
   });
 
+  // PDF Upload triggers
+  const pdfFileInput = document.getElementById('pdf-file-input');
+  const btnTriggerUpload = document.getElementById('btn-trigger-pdf-upload');
+  const pdfFileNameSpan = document.getElementById('pdf-file-name');
+  const btnUploadPdf = document.getElementById('btn-upload-pdf');
+
+  btnTriggerUpload.addEventListener('click', () => {
+    pdfFileInput.click();
+  });
+
+  pdfFileInput.addEventListener('change', () => {
+    const file = pdfFileInput.files[0];
+    if (file) {
+      pdfFileNameSpan.innerText = file.name;
+      btnUploadPdf.classList.remove('hidden');
+    } else {
+      pdfFileNameSpan.innerText = 'No file selected';
+      btnUploadPdf.classList.add('hidden');
+    }
+  });
+
+  btnUploadPdf.addEventListener('click', async () => {
+    const file = pdfFileInput.files[0];
+    if (!file) return;
+
+    btnUploadPdf.disabled = true;
+    btnUploadPdf.innerText = 'Analyzing...';
+    logActivity('PDF Summarizer', `Reading PDF file: ${file.name}`);
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const base64Data = reader.result;
+        logActivity('PDF Summarizer', `Uploading PDF payload to AI agent...`);
+        
+        await apiFetch('/api/notes/upload-pdf', {
+          method: 'POST',
+          body: JSON.stringify({
+            fileName: file.name,
+            base64Data: base64Data
+          })
+        });
+
+        logActivity('PDF Summarizer', `PDF successfully processed and summary note created.`);
+        
+        // Reset uploader state
+        pdfFileInput.value = '';
+        pdfFileNameSpan.innerText = 'No file selected';
+        btnUploadPdf.classList.add('hidden');
+        btnUploadPdf.disabled = false;
+        btnUploadPdf.innerText = 'Summarize';
+
+        // Reload data
+        setTimeout(loadAllData, 1200);
+      } catch (err) {
+        alert('PDF Summarizer error: ' + err.message);
+        btnUploadPdf.disabled = false;
+        btnUploadPdf.innerText = 'Summarize';
+      }
+    };
+    reader.readAsDataURL(file);
+  });
+
   // Detail Modal close
   document.getElementById('btn-close-modal').addEventListener('click', () => {
     document.getElementById('note-modal').classList.add('hidden');
@@ -321,14 +415,80 @@ function renderNotesList(notes) {
   });
 }
 
+function formatNoteContent(content) {
+  if (!content) return '';
+  
+  let escaped = content
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+    
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  escaped = escaped.replace(urlRegex, (url) => {
+    let cleanUrl = url;
+    let suffix = '';
+    if (url.endsWith('.') || url.endsWith(',')) {
+      cleanUrl = url.slice(0, -1);
+      suffix = url.slice(-1);
+    }
+    return `<a href="${cleanUrl}" target="_blank" style="color:var(--accent); text-decoration:underline; font-weight:500;">${cleanUrl}</a>${suffix}`;
+  });
+  
+  escaped = escaped.replace(/^-\s*\[\s*\]\s*(.*$)/gim, '<li style="margin-left:8px; margin-bottom:8px; color:var(--text-secondary); list-style-type: none; display: flex; align-items: center; gap: 8px;"><span style="color:var(--text-muted); font-size: 1.1rem; line-height: 1;">◽</span> <span>$1</span></li>');
+  escaped = escaped.replace(/^-\s*\[x\]\s*(.*$)/gim, '<li style="margin-left:8px; margin-bottom:8px; color:var(--text-secondary); list-style-type: none; display: flex; align-items: center; gap: 8px;"><span style="color:var(--accent); font-size: 1.1rem; line-height: 1;">☑</span> <span>$1</span></li>');
+
+  escaped = escaped.replace(/^###### (.*$)/gim, '<h6 style="margin-top:12px; margin-bottom:6px; color:var(--text-secondary); font-weight:600; font-size:0.875rem;">$1</h6>');
+  escaped = escaped.replace(/^##### (.*$)/gim, '<h5 style="margin-top:14px; margin-bottom:6px; color:var(--text); font-weight:600; font-size:0.95rem;">$1</h5>');
+  escaped = escaped.replace(/^#### (.*$)/gim, '<h4 style="margin-top:16px; margin-bottom:8px; color:var(--text); font-weight:600; font-size:1.05rem;">$1</h4>');
+  escaped = escaped.replace(/^### (.*$)/gim, '<h3 style="margin-top:18px; margin-bottom:8px; color:var(--text); font-weight:600; font-size:1.15rem;">$1</h3>');
+  escaped = escaped.replace(/^## (.*$)/gim, '<h2 style="margin-top:20px; margin-bottom:10px; color:var(--text); font-weight:600; font-size:1.3rem;">$1</h2>');
+  escaped = escaped.replace(/^# (.*$)/gim, '<h1 style="margin-top:24px; margin-bottom:12px; color:var(--text); font-weight:600; font-size:1.5rem;">$1</h1>');
+  
+  escaped = escaped.replace(/^- (.*$)/gim, '<li style="margin-left:20px; margin-bottom:8px; color:var(--text-secondary); list-style-type: disc;">$1</li>');
+  
+  escaped = escaped.replace(/\*\*(.*?)\*\*/g, '<strong style="color:var(--text); font-weight:600;">$1</strong>');
+  escaped = escaped.replace(/\*(.*?)\*/g, '<em style="font-style:italic;">$1</em>');
+
+  escaped = escaped.replace(/^&gt;\s*(.*$)/gim, '<blockquote style="border-left: 2px solid var(--accent); padding: 4px 12px; margin: 12px 0; color: var(--text-secondary); font-style: italic; background: rgba(255,255,255,0.01); border-radius: 0 4px 4px 0;">$1</blockquote>');
+
+  escaped = escaped.replace(/\n/g, '<br>');
+  
+  return escaped;
+}
+
+function resetNoteModalState() {
+  if (!activeModalNote) return;
+  document.getElementById('modal-note-title').innerHTML = activeModalNote.title;
+  document.getElementById('modal-note-content').innerHTML = formatNoteContent(activeModalNote.content);
+  
+  const editBtn = document.getElementById('btn-modal-edit-note');
+  editBtn.innerText = 'Edit Note';
+  editBtn.style.background = 'rgba(234, 179, 8, 0.05)';
+  editBtn.style.borderColor = 'rgba(234, 179, 8, 0.25)';
+  editBtn.style.color = 'var(--accent-hover)';
+  
+  const deleteBtn = document.getElementById('btn-modal-delete-note');
+  deleteBtn.innerText = 'Delete Note';
+  deleteBtn.className = 'danger-btn';
+  deleteBtn.style.background = '';
+  deleteBtn.style.border = '';
+  deleteBtn.style.color = '';
+  deleteBtn.style.padding = '';
+  deleteBtn.style.borderRadius = '';
+  deleteBtn.style.backdropFilter = '';
+  deleteBtn.style.webkitBackdropFilter = '';
+}
+
 async function showFullNote(id) {
   try {
     const note = await apiFetch(`/api/notes/${id}`);
+    activeModalNote = note;
     
-    document.getElementById('modal-note-title').innerText = note.title;
+    resetNoteModalState();
     document.getElementById('modal-note-date').innerText = new Date(note.createdAt).toLocaleString();
-    document.getElementById('modal-note-summary').innerText = note.summary || 'Summary not processed yet.';
-    document.getElementById('modal-note-content').innerText = note.content;
+    document.getElementById('modal-note-summary').innerHTML = formatNoteContent(note.summary || 'Summary not processed yet.');
 
     const tagsRow = document.getElementById('modal-note-tags');
     tagsRow.innerHTML = '';
@@ -359,21 +519,85 @@ async function showFullNote(id) {
       relationsDiv.innerHTML = '<span class="subtitle">No semantic relationships identified.</span>';
     }
 
-    // Delete Button setup
+    // Edit and Delete Button setups
+    const editBtn = document.getElementById('btn-modal-edit-note');
+    const newEditBtn = editBtn.cloneNode(true);
+    editBtn.parentNode.replaceChild(newEditBtn, editBtn);
+    
     const deleteBtn = document.getElementById('btn-modal-delete-note');
-    // Clear old listeners
     const newDeleteBtn = deleteBtn.cloneNode(true);
     deleteBtn.parentNode.replaceChild(newDeleteBtn, deleteBtn);
     
-    newDeleteBtn.addEventListener('click', async () => {
-      if (confirm('Are you sure you want to delete this note and all its tasks?')) {
+    let isEditing = false;
+    
+    newEditBtn.addEventListener('click', async () => {
+      if (!isEditing) {
+        isEditing = true;
+        
+        const titleVal = document.getElementById('modal-note-title').innerText;
+        document.getElementById('modal-note-title').innerHTML = `
+          <input type="text" id="modal-note-edit-title" value="${titleVal.replace(/"/g, '&quot;')}" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.12); color: var(--text); padding: 8px 12px; font-size: 1.15rem; font-weight: 600; border-radius: var(--radius); width: 90%; box-sizing: border-box; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); outline: none;">
+        `;
+        
+        document.getElementById('modal-note-content').innerHTML = `
+          <textarea id="modal-note-edit-content" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.12); color: var(--text); padding: 12px; font-size: 0.875rem; line-height: 1.5; border-radius: var(--radius); width: 100%; height: 220px; box-sizing: border-box; resize: vertical; font-family: inherit; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); outline: none;">${activeModalNote.content}</textarea>
+        `;
+        
+        newEditBtn.innerText = 'Save';
+        newEditBtn.style.background = 'rgba(34, 197, 94, 0.1)';
+        newEditBtn.style.borderColor = 'rgba(34, 197, 94, 0.3)';
+        newEditBtn.style.color = '#22c55e';
+        
+        newDeleteBtn.innerText = 'Cancel';
+        newDeleteBtn.className = '';
+        newDeleteBtn.style.background = 'rgba(255, 255, 255, 0.03)';
+        newDeleteBtn.style.border = '1px solid rgba(255, 255, 255, 0.12)';
+        newDeleteBtn.style.color = 'var(--text-secondary)';
+        newDeleteBtn.style.padding = '8px 16px';
+        newDeleteBtn.style.borderRadius = '8px';
+        newDeleteBtn.style.cursor = 'pointer';
+        newDeleteBtn.style.backdropFilter = 'blur(4px)';
+        newDeleteBtn.style.webkitBackdropFilter = 'blur(4px)';
+      } else {
+        const updatedTitle = document.getElementById('modal-note-edit-title').value.trim();
+        const updatedContent = document.getElementById('modal-note-edit-content').value.trim();
+        if (!updatedTitle || !updatedContent) {
+          alert('Title and Content cannot be empty.');
+          return;
+        }
+        
         try {
-          await apiFetch(`/api/notes/${id}`, { method: 'DELETE' });
-          logActivity('System', `Deleted note: "${note.title}"`);
-          document.getElementById('note-modal').classList.add('hidden');
+          const result = await apiFetch(`/api/notes/${id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ title: updatedTitle, content: updatedContent })
+          });
+          
+          logActivity('System', `Updated note: "${updatedTitle}"`);
+          activeModalNote = result;
+          isEditing = false;
+          
+          resetNoteModalState();
           loadAllData();
         } catch (e) {
           alert(e.message);
+        }
+      }
+    });
+    
+    newDeleteBtn.addEventListener('click', async () => {
+      if (isEditing) {
+        isEditing = false;
+        resetNoteModalState();
+      } else {
+        if (confirm('Are you sure you want to delete this note and all its tasks?')) {
+          try {
+            await apiFetch(`/api/notes/${id}`, { method: 'DELETE' });
+            logActivity('System', `Deleted note: "${note.title}"`);
+            document.getElementById('note-modal').classList.add('hidden');
+            loadAllData();
+          } catch (e) {
+            alert(e.message);
+          }
         }
       }
     });
@@ -423,304 +647,7 @@ document.getElementById('btn-refresh-digest').addEventListener('click', async ()
   }
 });
 
-// --- MODULE 4: KNOWLEDGE GRAPH ---
-let graphNodes = [];
-let graphEdges = [];
-let graphCanvas = null;
-let graphCtx = null;
-let graphDraggingNode = null;
-let graphHoveredNode = null;
-let graphOffset = { x: 0, y: 0 };
-let graphZoom = 1.0;
-let isPanning = false;
-let panStart = { x: 0, y: 0 };
-let animationFrameId = null;
 
-function initGraph(nodes, edges) {
-  graphCanvas = document.getElementById('graph-canvas');
-  graphCtx = graphCanvas.getContext('2d');
-  
-  // Set dimensions
-  graphCanvas.width = graphCanvas.parentElement.clientWidth || 500;
-  graphCanvas.height = graphCanvas.parentElement.clientHeight || 400;
-
-  // Transform raw data to simulation coordinates
-  const width = graphCanvas.width;
-  const height = graphCanvas.height;
-  
-  graphNodes = nodes.map(n => {
-    const existing = graphNodes.find(old => old.id === n.id);
-    return {
-      id: n.id,
-      label: n.label,
-      tags: n.tags || [],
-      x: existing ? existing.x : width / 2 + (Math.random() - 0.5) * 200,
-      y: existing ? existing.y : height / 2 + (Math.random() - 0.5) * 200,
-      vx: 0,
-      vy: 0,
-      radius: 12
-    };
-  });
-
-  graphEdges = edges.map(e => ({
-    source: graphNodes.find(n => n.id === e.source),
-    target: graphNodes.find(n => n.id === e.target)
-  })).filter(e => e.source && e.target);
-
-  // Setup Event Listeners
-  graphCanvas.addEventListener('mousedown', onGraphMouseDown);
-  graphCanvas.addEventListener('mousemove', onGraphMouseMove);
-  graphCanvas.addEventListener('mouseup', onGraphMouseUp);
-  graphCanvas.addEventListener('wheel', onGraphWheel);
-  
-  document.getElementById('btn-reset-graph').addEventListener('click', () => {
-    graphOffset = { x: 0, y: 0 };
-    graphZoom = 1.0;
-  });
-
-  document.getElementById('btn-graph-view-full').addEventListener('click', () => {
-    if (graphHoveredNode) {
-      document.getElementById('graph-preview-panel').classList.add('hidden');
-      showFullNote(graphHoveredNode.id);
-    }
-  });
-
-  // Start Animation Loop
-  if (animationFrameId) cancelAnimationFrame(animationFrameId);
-  function tick() {
-    updateGraphPhysics();
-    drawGraph();
-    animationFrameId = requestAnimationFrame(tick);
-  }
-  tick();
-}
-
-function updateGraphPhysics() {
-  const width = graphCanvas.width;
-  const height = graphCanvas.height;
-  const kRep = 1500;
-  const kAtt = 0.05;
-  const targetDist = 140;
-  const gravity = 0.03;
-
-  // Repel all nodes
-  for (let i = 0; i < graphNodes.length; i++) {
-    const nodeA = graphNodes[i];
-    for (let j = i + 1; j < graphNodes.length; j++) {
-      const nodeB = graphNodes[j];
-      const dx = nodeB.x - nodeA.x;
-      const dy = nodeB.y - nodeA.y;
-      const dist = Math.sqrt(dx * dx + dy * dy) || 1.0;
-      
-      const force = kRep / (dist * dist);
-      const fx = (dx / dist) * force;
-      const fy = (dy / dist) * force;
-
-      if (nodeA !== graphDraggingNode) {
-        nodeA.vx -= fx;
-        nodeA.vy -= fy;
-      }
-      if (nodeB !== graphDraggingNode) {
-        nodeB.vx += fx;
-        nodeB.vy += fy;
-      }
-    }
-  }
-
-  // Edge contraction
-  for (const edge of graphEdges) {
-    const dx = edge.target.x - edge.source.x;
-    const dy = edge.target.y - edge.source.y;
-    const dist = Math.sqrt(dx * dx + dy * dy) || 1.0;
-    
-    const force = kAtt * (dist - targetDist);
-    const fx = (dx / dist) * force;
-    const fy = (dy / dist) * force;
-
-    if (edge.source !== graphDraggingNode) {
-      edge.source.vx += fx;
-      edge.source.vy += fy;
-    }
-    if (edge.target !== graphDraggingNode) {
-      edge.target.vx -= fx;
-      edge.target.vy -= fy;
-    }
-  }
-
-  // Damping & Center Gravity
-  for (const node of graphNodes) {
-    if (node === graphDraggingNode) continue;
-
-    const dx = width / 2 - node.x;
-    const dy = height / 2 - node.y;
-    node.vx += dx * gravity;
-    node.vy += dy * gravity;
-
-    node.x += node.vx;
-    node.y += node.vy;
-
-    node.vx *= 0.85;
-    node.vy *= 0.85;
-  }
-}
-
-function drawGraph() {
-  if (!graphCtx) return;
-  graphCtx.clearRect(0, 0, graphCanvas.width, graphCanvas.height);
-  
-  graphCtx.save();
-  graphCtx.translate(graphOffset.x, graphOffset.y);
-  graphCtx.scale(graphZoom, graphZoom);
-
-  // Draw Edges
-  graphCtx.lineWidth = 1.5;
-  for (const edge of graphEdges) {
-    const isRelatedToHovered = graphHoveredNode && (edge.source.id === graphHoveredNode.id || edge.target.id === graphHoveredNode.id);
-    if (isRelatedToHovered) {
-      graphCtx.strokeStyle = 'rgba(6, 182, 212, 0.6)';
-      graphCtx.lineWidth = 2.5;
-    } else {
-      graphCtx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
-      graphCtx.lineWidth = 1.5;
-    }
-    graphCtx.beginPath();
-    graphCtx.moveTo(edge.source.x, edge.source.y);
-    graphCtx.lineTo(edge.target.x, edge.target.y);
-    graphCtx.stroke();
-  }
-
-  // Draw Nodes
-  for (const node of graphNodes) {
-    const isHovered = graphHoveredNode && node.id === graphHoveredNode.id;
-    
-    // Draw background glowing aura
-    const rad = node.radius + (isHovered ? 8 : 4);
-    let grad = graphCtx.createRadialGradient(node.x, node.y, 2, node.x, node.y, rad);
-    if (isHovered) {
-      grad.addColorStop(0, 'rgba(6, 182, 212, 0.5)');
-      grad.addColorStop(1, 'rgba(6, 182, 212, 0)');
-    } else {
-      grad.addColorStop(0, 'rgba(124, 58, 237, 0.25)');
-      grad.addColorStop(1, 'rgba(124, 58, 237, 0)');
-    }
-    
-    graphCtx.fillStyle = grad;
-    graphCtx.beginPath();
-    graphCtx.arc(node.x, node.y, rad, 0, Math.PI * 2);
-    graphCtx.fill();
-
-    // Node core
-    graphCtx.fillStyle = isHovered ? '#06b6d4' : '#7c3aed';
-    graphCtx.beginPath();
-    graphCtx.arc(node.x, node.y, node.radius - 4, 0, Math.PI * 2);
-    graphCtx.fill();
-
-    // Node label
-    graphCtx.fillStyle = '#ffffff';
-    graphCtx.font = `${isHovered ? 'bold' : '500'} 11px Inter, sans-serif`;
-    graphCtx.textAlign = 'center';
-    graphCtx.textBaseline = 'top';
-    const textLabel = node.label.length > 20 ? node.label.substring(0, 18) + '..' : node.label;
-    graphCtx.fillText(textLabel, node.x, node.y + node.radius + 3);
-  }
-
-  graphCtx.restore();
-}
-
-function getCanvasMouseCoords(e) {
-  const rect = graphCanvas.getBoundingClientRect();
-  const screenX = e.clientX - rect.left;
-  const screenY = e.clientY - rect.top;
-  return {
-    x: (screenX - graphOffset.x) / graphZoom,
-    y: (screenY - graphOffset.y) / graphZoom
-  };
-}
-
-function onGraphMouseDown(e) {
-  const coords = getCanvasMouseCoords(e);
-  
-  // Check if click hits a node
-  const hit = graphNodes.find(node => {
-    const dx = node.x - coords.x;
-    const dy = node.y - coords.y;
-    return Math.sqrt(dx * dx + dy * dy) < node.radius + 5;
-  });
-
-  if (hit) {
-    graphDraggingNode = hit;
-    graphHoveredNode = hit;
-    displayGraphNodePreview(hit);
-  } else {
-    isPanning = true;
-    panStart = { x: e.clientX - graphOffset.x, y: e.clientY - graphOffset.y };
-  }
-}
-
-function onGraphMouseMove(e) {
-  const coords = getCanvasMouseCoords(e);
-
-  if (graphDraggingNode) {
-    graphDraggingNode.x = coords.x;
-    graphDraggingNode.y = coords.y;
-    graphDraggingNode.vx = 0;
-    graphDraggingNode.vy = 0;
-  } else if (isPanning) {
-    graphOffset.x = e.clientX - panStart.x;
-    graphOffset.y = e.clientY - panStart.y;
-  } else {
-    // Hover check
-    const hit = graphNodes.find(node => {
-      const dx = node.x - coords.x;
-      const dy = node.y - coords.y;
-      return Math.sqrt(dx * dx + dy * dy) < node.radius + 5;
-    });
-    
-    if (hit !== graphHoveredNode) {
-      graphHoveredNode = hit;
-      if (hit) {
-        displayGraphNodePreview(hit);
-      } else {
-        document.getElementById('graph-preview-panel').classList.add('hidden');
-      }
-    }
-  }
-}
-
-function onGraphMouseUp() {
-  graphDraggingNode = null;
-  isPanning = false;
-}
-
-function onGraphWheel(e) {
-  e.preventDefault();
-  const zoomFactor = 1.1;
-  if (e.deltaY < 0) {
-    graphZoom = Math.min(graphZoom * zoomFactor, 3.0);
-  } else {
-    graphZoom = Math.max(graphZoom / zoomFactor, 0.4);
-  }
-}
-
-function displayGraphNodePreview(node) {
-  const panel = document.getElementById('graph-preview-panel');
-  document.getElementById('graph-node-title').innerText = node.label;
-  
-  // Find note representation in state
-  const note = allNotes.find(n => n.id === node.id);
-  document.getElementById('graph-node-summary').innerText = note ? (note.summary || note.content.substring(0, 80) + '...') : '';
-  
-  const tagsRow = document.getElementById('graph-node-tags');
-  tagsRow.innerHTML = '';
-  (node.tags || []).forEach(t => {
-    const pill = document.createElement('span');
-    pill.className = 'tag-pill';
-    pill.innerText = t;
-    tagsRow.appendChild(pill);
-  });
-  
-  panel.classList.remove('hidden');
-}
 
 // --- MODULE 5: CHAT ---
 function initChatModule() {
@@ -729,6 +656,13 @@ function initChatModule() {
   document.getElementById('btn-send-chat').addEventListener('click', () => triggerChatSubmit());
   chatInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') triggerChatSubmit();
+  });
+
+  document.querySelectorAll('.suggestion-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      chatInput.value = pill.innerText;
+      triggerChatSubmit();
+    });
   });
 
   document.getElementById('btn-clear-console').addEventListener('click', () => {
@@ -750,9 +684,10 @@ async function triggerChatSubmit() {
   const thinkingId = appendChatMessage('system', 'Agent is thinking...');
 
   try {
+    const role = document.getElementById('chat-agent-role').value;
     const result = await apiFetch('/api/chat', {
       method: 'POST',
-      body: JSON.stringify({ message: userMsg })
+      body: JSON.stringify({ message: userMsg, role })
     });
 
     // Remove thinking message
@@ -787,7 +722,10 @@ function appendChatMessage(sender, text) {
   
   msg.className = `message ${sender}`;
   msg.id = msgId;
-  msg.innerHTML = `<div class="message-content">${text}</div>`;
+  
+  // Format markdown nodes dynamically
+  const formattedHtml = formatNoteContent(text);
+  msg.innerHTML = `<div class="message-content">${formattedHtml}</div>`;
   
   container.appendChild(msg);
   container.scrollTop = container.scrollHeight;
@@ -859,13 +797,34 @@ function renderTasksKanban(tasks) {
     card.className = 'kanban-card';
     card.setAttribute('draggable', 'true');
     
+    const priority = task.priority || 'normal';
+    const createdAtDate = task.createdAt ? new Date(task.createdAt) : new Date();
+    const dateStr = isNaN(createdAtDate.getTime()) ? new Date().toLocaleDateString() : createdAtDate.toLocaleDateString();
+    
     card.innerHTML = `
+      <button class="delete-task-btn" title="Delete Task">&times;</button>
       <h4>${task.title}</h4>
       <div class="kanban-card-meta">
-        <span class="priority-badge ${task.priority}">${task.priority.toUpperCase()}</span>
-        <span>📅 ${new Date(task.createdAt).toLocaleDateString()}</span>
+        <span class="priority-badge ${priority}">${priority.toUpperCase()}</span>
+        <span>📅 ${dateStr}</span>
       </div>
     `;
+
+    const deleteBtn = card.querySelector('.delete-task-btn');
+    deleteBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (confirm(`Are you sure you want to delete this task: "${task.title}"?`)) {
+        try {
+          await apiFetch(`/api/tasks/${task.id}`, {
+            method: 'DELETE'
+          });
+          logActivity('Task Board', `Deleted task: "${task.title}"`);
+          await loadAllData();
+        } catch (err) {
+          alert('Failed to delete task: ' + err.message);
+        }
+      }
+    });
 
     card.addEventListener('dragstart', (e) => {
       e.dataTransfer.setData('text/plain', task.id);
@@ -905,6 +864,14 @@ function renderConflictsList(conflicts) {
         <strong><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:6px;color:var(--accent)"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A5 5 0 0 0 8 8c0 1 .3 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg> Suggested Resolution:</strong>
         <p>${conflict.resolution}</p>
       </div>
+      ${conflict.mergeSuggestion ? `
+      <div class="conflict-merge-box" style="margin-top: 12px; padding: 10px 14px; background: rgba(255,255,255,0.02); border-left: 2px solid var(--accent-blue, #60a5fa); border-radius: 0 var(--radius) var(--radius) 0;">
+        <strong style="color: var(--accent-blue, #60a5fa); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-bottom: 4px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:6px;"><path d="M12 22V12"/><path d="M12 12 4 8v10l8 4 8-4V8l-8 4Z"/></svg> Suggested Note Merge:
+        </strong>
+        <p style="margin: 0; font-size: 0.85rem; color: var(--text-secondary);">${conflict.mergeSuggestion}</p>
+      </div>
+      ` : ''}
       <div class="conflict-actions">
         <button class="primary-btn-sm" onclick="applyConflictResolution('${conflict.id}')">Accept Resolution</button>
         <button class="danger-btn-sm" style="background:transparent; border:1px solid var(--text-muted); color:var(--text-muted); padding:5px 10px; border-radius:8px;" onclick="dismissConflict('${conflict.id}')">Dismiss Warning</button>
@@ -960,44 +927,101 @@ function renderSproutsList(sprouts) {
   container.innerHTML = '';
 
   if (sprouts.length === 0) {
-    container.innerHTML = '<p class="placeholder-text" style="grid-column:1/-1;">Generate conceptual sprouts using the button above.</p>';
+    container.innerHTML = `
+      <div style="grid-column:1/-1; text-align:center; padding: 60px 20px; color: var(--text-muted);">
+        <div style="font-size: 2.5rem; margin-bottom: 16px; opacity: 0.4;">🌱</div>
+        <p style="font-size: 0.95rem; margin-bottom: 8px; color: var(--text-secondary);">No sprouts yet</p>
+        <p style="font-size: 0.82rem;">Click <strong style="color:var(--accent)">Generate New Sprouts</strong> to cross-pollinate your notes into fresh ideas.</p>
+      </div>`;
     return;
   }
 
-  sprouts.forEach(sprout => {
+  // Sort newest first
+  const sorted = [...sprouts].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+  sorted.forEach(sprout => {
     const card = document.createElement('div');
     card.className = 'sprout-card glass-panel';
+
+    const sourceTitles = sprout.sourceTitles || sprout.sourceNotes.map(id => {
+      const n = allNotes.find(n => n.id === id);
+      return n ? n.title : id;
+    });
+
+    const timeAgo = (() => {
+      const diff = Date.now() - new Date(sprout.createdAt).getTime();
+      const m = Math.floor(diff / 60000);
+      if (m < 1) return 'just now';
+      if (m < 60) return `${m}m ago`;
+      const h = Math.floor(m / 60);
+      if (h < 24) return `${h}h ago`;
+      return `${Math.floor(h / 24)}d ago`;
+    })();
+
     card.innerHTML = `
-      <div>
-        <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:6px;color:var(--accent)"><path d="M7 20h10"/><path d="M10 20c5.5-2.5.8-6.4 3-10"/><path d="M9.5 9.4c1.1.8 1.8 2.2 2.3 3.7-2 .4-3.5.4-4.8-.3-1.2-.6-2.3-1.9-3-4.2 2.8-.5 4.4 0 5.5.8z"/><path d="M14.1 6a7 7 0 0 0-1.1 4c1.9-.1 3.3-.6 4.3-1.4 1-1 1.6-2.3 1.7-4.6-2.7.1-4 1-4.9 2z"/></svg> ${sprout.title}</h3>
-        <p>${sprout.description}</p>
+      <div class="sprout-card-body">
+        <div class="sprout-card-header">
+          <h3>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:6px;color:var(--accent);flex-shrink:0"><path d="M7 20h10"/><path d="M10 20c5.5-2.5.8-6.4 3-10"/><path d="M9.5 9.4c1.1.8 1.8 2.2 2.3 3.7-2 .4-3.5.4-4.8-.3-1.2-.6-2.3-1.9-3-4.2 2.8-.5 4.4 0 5.5.8z"/><path d="M14.1 6a7 7 0 0 0-1.1 4c1.9-.1 3.3-.6 4.3-1.4 1-1 1.6-2.3 1.7-4.6-2.7.1-4 1-4.9 2z"/></svg>
+            ${sprout.title}
+          </h3>
+          <button class="sprout-delete-btn" title="Dismiss sprout" onclick="deleteSprout('${sprout.id}')">×</button>
+        </div>
+        <p class="sprout-desc">${sprout.description}</p>
+        <div class="sprout-sources">
+          <span class="sprout-sources-label">✦ Sparked by</span>
+          ${sourceTitles.map(t => `<span class="sprout-source-chip">${t}</span>`).join('<span style="color:var(--text-muted);font-size:0.75rem;align-self:center;">+</span>')}
+        </div>
       </div>
       <div class="sprout-actions">
-        <button class="primary-btn-sm" style="padding: 6px 12px; font-size:0.8rem;" onclick="convertSproutToNote('${sprout.id}')">Grow to Note</button>
+        <span class="sprout-time">${timeAgo}</span>
+        <button class="primary-btn-sm sprout-grow-btn" onclick="convertSproutToNote('${sprout.id}')">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:5px"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg>
+          Grow to Note
+        </button>
       </div>
     `;
     container.appendChild(card);
   });
 }
 
-window.convertSproutToNote = async function(id) {
-  const sprout = allSprouts.find(s => s.id === id);
-  if (!sprout) return;
+window.deleteSprout = async function(id) {
   try {
-    logActivity('Sprout Engine', `Expanding sprout idea into complete note: "${sprout.title}"`);
-    await apiFetch('/api/notes', {
-      method: 'POST',
-      body: JSON.stringify({
-        title: sprout.title,
-        content: `### Concept Sprout Expansion\n\n**Origin Summary:**\n${sprout.description}\n\n**Source References:**\n- Source IDs: ${sprout.sourceNotes.join(', ')}`
-      })
-    });
-    logActivity('Ingestion', `Sprout expanded to Note. Background extraction pending.`);
+    await apiFetch(`/api/sprouts/${id}`, { method: 'DELETE' });
+    logActivity('Sprout Engine', 'Sprout dismissed.');
     await loadAllData();
   } catch (err) {
     alert(err.message);
   }
 };
+
+window.convertSproutToNote = async function(id) {
+  const sprout = allSprouts.find(s => s.id === id);
+  if (!sprout) return;
+
+  const sourceTitles = sprout.sourceTitles || sprout.sourceNotes.map(sid => {
+    const n = allNotes.find(n => n.id === sid);
+    return n ? n.title : sid;
+  });
+
+  try {
+    logActivity('Sprout Engine', `Growing sprout into note: "${sprout.title}"`);
+    await apiFetch('/api/notes', {
+      method: 'POST',
+      body: JSON.stringify({
+        title: sprout.title,
+        content: `### Concept Origin\n\nThis note was sprouted by cross-pollinating two ideas from your knowledge base.\n\n### Synthesized Idea\n\n${sprout.description}\n\n### Source Notes\n\n- ${sourceTitles[0] || 'Source A'}\n- ${sourceTitles[1] || 'Source B'}\n\n### Next Steps\n\nExpand on this concept by exploring connections, running experiments, or drafting an outline.`
+      })
+    });
+    // Remove the sprout once grown
+    await apiFetch(`/api/sprouts/${id}`, { method: 'DELETE' });
+    logActivity('Ingestion', `Sprout grown into full note: "${sprout.title}"`);
+    await loadAllData();
+  } catch (err) {
+    alert(err.message);
+  }
+};
+
 
 // --- MODULE 9: VOICE RECORDER ---
 let voiceRecognition = null;
@@ -1077,19 +1101,53 @@ function initVoiceRecorderModule() {
         return;
       }
 
-      response.proposals.forEach((prop, index) => {
+      response.proposals.forEach((prop, propIdx) => {
         const card = document.createElement('div');
         card.className = 'proposal-preview-card';
-        card.innerHTML = `
-          <h4>${prop.title}</h4>
-          <p>${prop.content}</p>
-          <div class="tag-row">
-            ${(prop.actionItems || []).map(ti => `<span class="tag-pill" style="background:rgba(245,158,11,0.12); color:#f59e0b;">Todo: ${ti}</span>`).join('')}
-          </div>
-          <button class="primary-btn-sm" style="padding: 4px 8px; font-size:0.75rem;" onclick="saveRefinedProposal(${index}, '${btoa(JSON.stringify(prop))}')">Accept & Ingest</button>
-        `;
+        card.dataset.propType = prop.type || 'note';
+        card.dataset.propIdx  = propIdx;
+
+        if (prop.type === 'task') {
+          // ── TASK CARD: just the task title, editable ──
+          card.innerHTML = `
+            <div class="pcard-header">
+              <div class="pcard-badge pcard-badge-task">📋 Task</div>
+              <button class="pcard-dismiss" onclick="this.closest('.proposal-preview-card').remove()" title="Dismiss">×</button>
+            </div>
+            <div class="pcard-field">
+              <label class="pcard-label">Task Title</label>
+              <input type="text" class="proposal-title-input pcard-input" value="${prop.title.replace(/"/g, '&quot;')}" placeholder="What needs to be done?">
+            </div>
+            <div class="pcard-footer">
+              <button class="pcard-btn pcard-btn-dismiss" onclick="this.closest('.proposal-preview-card').remove()">Dismiss</button>
+              <button class="pcard-btn pcard-btn-accept" onclick="acceptProposal(this)">✓ Add to Task Board</button>
+            </div>
+          `;
+        } else {
+          // ── NOTE CARD: title + content, editable ──
+          card.innerHTML = `
+            <div class="pcard-header">
+              <div class="pcard-badge">✦ Note</div>
+              <button class="pcard-dismiss" onclick="this.closest('.proposal-preview-card').remove()" title="Dismiss">×</button>
+            </div>
+            <div class="pcard-field">
+              <label class="pcard-label">Title</label>
+              <input type="text" class="proposal-title-input pcard-input" value="${prop.title.replace(/"/g, '&quot;')}" placeholder="Note title...">
+            </div>
+            <div class="pcard-field">
+              <label class="pcard-label">Content</label>
+              <textarea class="proposal-content-textarea pcard-textarea" placeholder="Note content...">${prop.content || ''}</textarea>
+            </div>
+            <div class="pcard-footer">
+              <button class="pcard-btn pcard-btn-dismiss" onclick="this.closest('.proposal-preview-card').remove()">Dismiss</button>
+              <button class="pcard-btn pcard-btn-accept" onclick="acceptProposal(this)">✓ Add to Notes</button>
+            </div>
+          `;
+        }
+
         proposalsDiv.appendChild(card);
       });
+
 
     } catch (e) {
       proposalsDiv.innerHTML = `<p class="placeholder-text" style="color:var(--accent-red);">Refiner failed: ${e.message}</p>`;
@@ -1102,6 +1160,7 @@ function startVoiceRecording() {
   isRecordingVoice = true;
   document.getElementById('btn-record-mic').classList.add('active');
   document.getElementById('record-status').innerText = 'Microphone listening. Speak clearly...';
+  document.getElementById('audio-visualizer').classList.remove('hidden');
   voiceRecognition.start();
 }
 
@@ -1110,28 +1169,64 @@ function stopVoiceRecording() {
   isRecordingVoice = false;
   document.getElementById('btn-record-mic').classList.remove('active');
   document.getElementById('record-status').innerText = 'Microphone stopped. Refine contents below.';
+  document.getElementById('audio-visualizer').classList.add('hidden');
   voiceRecognition.stop();
 }
 
-window.saveRefinedProposal = async function(index, propBase64) {
-  const prop = JSON.parse(atob(propBase64));
-  try {
-    logActivity('Ingestion', `Saving refined proposal: "${prop.title}"`);
-    await apiFetch('/api/notes', {
-      method: 'POST',
-      body: JSON.stringify({
-        title: prop.title,
-        content: `${prop.content}\n\n${(prop.actionItems || []).map(item => `- TODO: ${item}`).join('\n')}`
-      })
-    });
-    
-    logActivity('Ingestion', `Saved. Background pipeline initialized.`);
-    document.getElementsByClassName('proposal-preview-card')[index].remove();
-    await loadAllData();
-  } catch (err) {
-    alert(err.message);
+// Accept a proposal — routes to Notes or Task Board based on card type
+window.acceptProposal = async function(btnElement) {
+  const card = btnElement.closest('.proposal-preview-card');
+  if (!card) return;
+  const type = card.dataset.propType || 'note';
+  const title = card.querySelector('.proposal-title-input').value.trim();
+
+  if (!title) { alert('Please enter a title before accepting.'); return; }
+
+  if (type === 'task') {
+    // Save to Task Board
+    btnElement.disabled = true;
+    btnElement.innerText = 'Adding…';
+    try {
+      await apiFetch('/api/tasks', {
+        method: 'POST',
+        body: JSON.stringify({ title, status: 'todo', priority: 'medium', sourceNote: null })
+      });
+      logActivity('Task Board', `Task added: “${title}”`);
+      card.remove();
+      await loadAllData();
+    } catch (err) {
+      btnElement.disabled = false;
+      btnElement.innerText = '✓ Add to Task Board';
+      alert(err.message);
+    }
+  } else {
+    // Save to Notes
+    const content = card.querySelector('.proposal-content-textarea');
+    const contentValue = content ? content.value.trim() : '';
+    if (!contentValue) { alert('Please add some content before accepting.'); return; }
+
+    btnElement.disabled = true;
+    btnElement.innerText = 'Saving…';
+    try {
+      await apiFetch('/api/notes', {
+        method: 'POST',
+        body: JSON.stringify({ title, content: contentValue })
+      });
+      logActivity('Ingestion', `Note saved: “${title}” — ingestion pipeline running.`);
+      card.remove();
+      await loadAllData();
+    } catch (err) {
+      btnElement.disabled = false;
+      btnElement.innerText = '✓ Add to Notes';
+      alert(err.message);
+    }
   }
 };
+
+// Kept for backward compatibility but no longer called from cards
+window.saveRefinedProposal = window.acceptProposal;
+window.saveToNotesOnly     = window.acceptProposal;
+window.saveToTasksOnly     = window.acceptProposal;
 
 // --- MODULE 10: ACTIONS RUNNER ---
 function initActionsModule() {
