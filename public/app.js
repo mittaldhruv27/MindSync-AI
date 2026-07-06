@@ -39,13 +39,45 @@ function apiFetch(url, options = {}) {
 // Log activity feed locally on the dashboard console
 function logActivity(agent, message) {
   const timeline = document.getElementById('activity-timeline');
+  if (!timeline) return;
+
   const item = document.createElement('div');
+  
+  // Clean agent suffix for a more compact badge label
+  const cleanAgent = agent.replace(/\s+Agent$/, '').trim();
+  
+  // Map agent names to specific theme colors
+  let color = '#71717a'; // Default slate gray
+  const name = cleanAgent.toLowerCase();
+  
+  if (name.includes('ingestion')) {
+    color = '#10b981'; // Green
+  } else if (name.includes('conflict')) {
+    color = '#ef4444'; // Red
+  } else if (name.includes('sprout') || name.includes('concept')) {
+    color = '#a78bfa'; // Purple
+  } else if (name.includes('chat')) {
+    color = '#60a5fa'; // Blue
+  } else if (name.includes('action')) {
+    color = '#eab308'; // Yellow
+  } else if (name.includes('clipper') || name.includes('web')) {
+    color = '#22d3ee'; // Cyan
+  } else if (name.includes('voice') || name.includes('recorder')) {
+    color = '#ec4899'; // Pink
+  } else if (name.includes('database') || name.includes('migration') || name.includes('system')) {
+    color = '#94a3b8'; // Slate
+  }
+
   item.className = 'timeline-item';
+  item.style.setProperty('--agent-color', color);
   
   const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   item.innerHTML = `
     <span class="time">${timeStr}</span>
-    <span class="event"><b>[${agent}]</b> ${message}</span>
+    <span class="event">
+      <span class="agent-badge" style="color:${color}; background:${color}10; border: 1px solid ${color}2c;">${cleanAgent}</span>
+      <span class="event-text">${message}</span>
+    </span>
   `;
   timeline.insertBefore(item, timeline.firstChild);
 }
@@ -1524,48 +1556,72 @@ function renderGrowthChart(notes) {
     growthChartInstance.destroy();
   }
 
-  // Group and sort notes by date
-  const sorted = [...notes].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+  // Count frequencies of all tags in all notes
+  const tagCounts = {};
+  notes.forEach(note => {
+    if (note.tags && Array.isArray(note.tags)) {
+      note.tags.forEach(tag => {
+        const cleaned = tag.trim().toLowerCase();
+        if (cleaned) {
+          tagCounts[cleaned] = (tagCounts[cleaned] || 0) + 1;
+        }
+      });
+    }
+  });
+
+  // Sort tags by frequency (descending) and take top 6
+  const sortedTags = Object.entries(tagCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6);
+
   const labels = [];
   const data = [];
-  let runningCount = 0;
 
-  sorted.forEach(n => {
-    const dateStr = new Date(n.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' });
-    runningCount++;
-    labels.push(dateStr);
-    data.push(runningCount);
+  sortedTags.forEach(([tag, count]) => {
+    const capitalized = tag.charAt(0).toUpperCase() + tag.slice(1);
+    labels.push(capitalized);
+    data.push(count);
   });
 
   // Fallback for empty state
-  if (notes.length === 0) {
-    labels.push(new Date().toLocaleDateString([], { month: 'short', day: 'numeric' }));
+  if (labels.length === 0) {
+    labels.push('No Tags Stored');
     data.push(0);
   }
 
   growthChartInstance = new Chart(ctx, {
-    type: 'line',
+    type: 'bar',
     data: {
       labels,
       datasets: [{
-        label: 'Brain Density (Total Notes)',
+        label: 'Notes per Topic',
         data,
-        borderColor: '#7c3aed',
-        borderWidth: 2.5,
-        backgroundColor: 'rgba(124,58,237,0.15)',
-        tension: 0.35,
-        fill: true
+        borderColor: 'rgba(124,58,237,0.7)',
+        backgroundColor: 'rgba(124,58,237,0.2)',
+        hoverBackgroundColor: 'rgba(124,58,237,0.35)',
+        hoverBorderColor: 'rgba(124,58,237,0.9)',
+        borderWidth: 1.5,
+        borderRadius: 4,
+        barPercentage: 0.65
       }]
     },
     options: {
+      indexAxis: 'y',
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
         legend: { display: false }
       },
       scales: {
-        x: { grid: { color: 'rgba(255, 255, 255, 0.04)' }, ticks: { color: '#9ca3af', font: { family: 'Inter' } } },
-        y: { grid: { color: 'rgba(255, 255, 255, 0.04)' }, ticks: { color: '#9ca3af', stepSize: 1 } }
+        x: { 
+          grid: { color: 'rgba(255, 255, 255, 0.04)' }, 
+          ticks: { color: '#9ca3af', font: { family: 'system-ui' }, stepSize: 1 },
+          min: 0
+        },
+        y: { 
+          grid: { display: false }, 
+          ticks: { color: '#9ca3af', font: { family: 'system-ui' } } 
+        }
       }
     }
   });
