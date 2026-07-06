@@ -52,6 +52,7 @@ function logActivity(agent, message) {
 // Initialize all modules
 window.addEventListener('DOMContentLoaded', async () => {
   initNavigation();
+  initSidebarCollapse();
   initSettings();
   initNotesModule();
   initChatModule();
@@ -108,6 +109,23 @@ async function loadAllData() {
     console.error('Failed to load dashboard data:', err);
     logActivity('System', 'Failed to retrieve database contents. Please verify Bearer configuration.');
   }
+}
+
+// --- MODULE 0: SIDEBAR COLLAPSE ---
+function initSidebarCollapse() {
+  const sidebar = document.getElementById('main-sidebar');
+  const btn = document.getElementById('btn-collapse-sidebar');
+  if (!sidebar || !btn) return;
+
+  // Restore persisted state
+  if (localStorage.getItem('mindsync_sidebar_collapsed') === 'true') {
+    sidebar.classList.add('collapsed');
+  }
+
+  btn.addEventListener('click', () => {
+    const isCollapsed = sidebar.classList.toggle('collapsed');
+    localStorage.setItem('mindsync_sidebar_collapsed', isCollapsed);
+  });
 }
 
 // --- MODULE 1: NAVIGATION ---
