@@ -1376,15 +1376,13 @@ async function runActionAgent(actionId) {
       }
       for (const note of db.notes) {
         const safeTitle = note.title.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
-        const content = `# ${note.title}\n\n**Created At:** ${note.createdAt}\n**Tags:** ${note.tags.join(', ')}\n\n## Summary\n${note.summary}\n\n## Content\n${note.content}\n\n## Action Items\n${(note.actionItems || []).map(t => `- [ ] ${t}`).join('\n')}\n`;
+        const tags = (note.tags || []).join(', ');
+        const content = `# ${note.title}\n\n**Created At:** ${note.createdAt}\n**Tags:** ${tags}\n\n## Summary\n${note.summary || 'Not yet summarised.'}\n\n## Content\n${note.content}\n\n## Action Items\n${(note.actionItems || []).map(t => `- [ ] ${t}`).join('\n') || 'None.'}\n`;
         fs.writeFileSync(path.join(exportDir, `${safeTitle}.md`), content, 'utf8');
       }
       action.status = 'success';
-      console.log(`[Action Runner Agent] Exported notes to: ${exportDir}`);
-    } else if (action.type === 'webhook') {
-      // Simulate webhook hit
-      action.status = 'success';
-      console.log(`[Action Runner Agent] Webhook triggered successfully: ${action.target}`);
+      action.meta = { exportedCount: db.notes.length, exportDir };
+      console.log(`[Action Runner Agent] Exported ${db.notes.length} notes to: ${exportDir}`);
     } else if (action.type === 'digest') {
       const openTasks = db.tasks.filter(t => t.status !== 'done');
       const openConflicts = db.conflicts.filter(c => c.status === 'unresolved');
@@ -1429,10 +1427,56 @@ ${revisitSection}
       await writeDB(db);
       await runIngestionAgent(digestNote.id);
       console.log(`[Action Runner Agent] Daily Digest note added: ${digestNote.id}`);
+    } else if (action.type === 'email') {
+      const openTasks = db.tasks.filter(t => t.status !== 'done');
+      const openConflicts = db.conflicts.filter(c => c.status === 'unresolved');
+      const currentSprouts = db.sprouts;
+
+      const subject = `MindSync AI Second Brain Digest - ${new Date().toLocaleDateString()}`;
+      
+      const body = `Hello!
+
+Here is the latest digest from your MindSync AI Second Brain.
+
+--- STATS SUMMARY ---
+- Total Notes: ${db.notes.length}
+- Open Tasks: ${openTasks.length}
+- Unresolved Conflicts: ${openConflicts.length}
+- New Concept Sprouts: ${currentSprouts.length}
+
+--- OPEN TASKS ---
+${openTasks.map(t => `- [${t.priority || 'normal'}] ${t.title}`).join('\n') || 'No open tasks.'}
+
+--- UNRESOLVED CONFLICTS ---
+${openConflicts.map(c => `- 🔴 ${c.description}`).join('\n') || 'No conflicts found.'}
+
+--- NEW CONCEPT SPROUTS ---
+${currentSprouts.map(s => `- 💡 ${s.title}: ${s.description}`).join('\n') || 'No sprouts generated yet.'}
+
+--- LATEST NOTES ---
+${db.notes.slice(-3).reverse().map(n => `* ${n.title}\n  Summary: ${n.summary || 'No summary.'}`).join('\n\n') || 'No notes.'}
+
+Best regards,
+Your MindSync AI Agent
+`;
+
+      const smtpConfig = db.settings || {};
+      const previewUrl = await sendRealEmail(smtpConfig, action.target, subject, body);
+      
+      action.status = 'success';
+      action.meta = { 
+        recipient: action.target,
+        sandbox: !!previewUrl,
+        previewUrl: previewUrl || null
+      };
+      console.log(`[Action Runner Agent] Email sent to: ${action.target}`);
     }
   } catch (err) {
     action.status = 'failed';
-    console.error('[Action Runner Agent] Execution failed:', err);
+    action.lastError = err.message;
+    console.error('[Action Runner Agent] Execution failed:', err.message);
+    await writeDB(db);
+    throw err;  // re-throw so the route returns HTTP 500
   }
 
   await writeDB(db);
@@ -1611,21 +1655,114 @@ ${revisitSection}
     };
   }
 
-  // 2. Emailing Notes
-  if (msg.includes('email') || (msg.includes('send') && msg.includes('note') && msg.includes('to'))) {
+  // 2. Emailing Notes, Digests, or Tasks
+  const hasEmail = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/.test(userMsg);
+  const hasEmailVerb = /(email|mail|send|forward|share|dispatch|post)/i.test(userMsg);
+  if (hasEmail && hasEmailVerb) {
     const emailMatch = userMsg.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
     if (emailMatch) {
       const targetEmail = emailMatch[0];
-      const latestNote = db.notes[db.notes.length - 1];
-      if (!latestNote) {
-        return {
-          consoleLogs: [`Executing Tool: send_email("${targetEmail}")`, `Error: No notes found in database.`],
-          response: `I tried to send an email to **${targetEmail}**, but you don't have any notes in your library yet!`
-        };
-      }
       
-      const emailSubject = `MindSync Note: ${latestNote.title}`;
-      const emailBody = latestNote.content || latestNote.summary || '';
+      let cleanMsg = userMsg.replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/, '').trim();
+      cleanMsg = cleanMsg.replace(/^(email|send|mail|forward|share|dispatch|post)\b/gi, '').trim();
+      cleanMsg = cleanMsg.replace(/\bto\b\s*$/gi, '').trim(); // trailing "to"
+      cleanMsg = cleanMsg.replace(/\bnote\b/gi, '').trim();
+      cleanMsg = cleanMsg.replace(/\b(?:the|my)\b/gi, '').trim();
+      cleanMsg = cleanMsg.replace(/\s+/g, ' ').trim(); // normalize spacing
+
+      let emailSubject = '';
+      let emailBody = '';
+      let itemDescription = '';
+
+      const isDigest = /(digest|briefing|morning briefing|summary digest)/i.test(userMsg);
+      const isTask = /(task|todo|to-do)/i.test(userMsg);
+
+      if (isDigest) {
+        // Compile Daily Digest on the fly
+        const openTasks = db.tasks.filter(t => t.status !== 'done');
+        const openConflicts = db.conflicts.filter(c => c.status === 'unresolved');
+        const currentSprouts = db.sprouts;
+
+        emailSubject = `MindSync AI Daily Digest - ${new Date().toLocaleDateString()}`;
+        emailBody = `Hello!
+
+Here is your requested Daily Digest from MindSync AI.
+
+--- STATS SUMMARY ---
+- Total Notes: ${db.notes.length}
+- Open Tasks: ${openTasks.length}
+- Unresolved Conflicts: ${openConflicts.length}
+- New Concept Sprouts: ${currentSprouts.length}
+
+--- OPEN TASKS ---
+${openTasks.map(t => `- [${t.priority || 'normal'}] ${t.title}`).join('\n') || 'No open tasks.'}
+
+--- UNRESOLVED CONFLICTS ---
+${openConflicts.map(c => `- 🔴 ${c.description}`).join('\n') || 'No conflicts found.'}
+
+--- NEW CONCEPT SPROUTS ---
+${currentSprouts.map(s => `- 💡 ${s.title}: ${s.description}`).join('\n') || 'No sprouts generated yet.'}
+
+Best regards,
+Your MindSync AI Agent`;
+        itemDescription = 'Daily Digest';
+      } else if (isTask && cleanMsg) {
+        const lowerSearch = cleanMsg.replace(/\btask\b/gi, '').trim().toLowerCase();
+        const selectedTask = db.tasks.find(t => t.title.toLowerCase().includes(lowerSearch));
+        if (selectedTask) {
+          emailSubject = `MindSync Task: ${selectedTask.title}`;
+          emailBody = `Task Details:
+Title: ${selectedTask.title}
+Status: ${selectedTask.status.toUpperCase()}
+Priority: ${selectedTask.priority.toUpperCase()}
+Created At: ${new Date(selectedTask.createdAt).toLocaleString()}
+`;
+          itemDescription = `task "${selectedTask.title}"`;
+        } else {
+          return {
+            consoleLogs: [`Executing Tool: send_email("${targetEmail}")`, `Error: Task not found matching "${cleanMsg}"`],
+            response: `I tried to find a task matching **"${cleanMsg}"** to email, but couldn't find one on the Task Board.`
+          };
+        }
+      } else {
+        // Find Note
+        let selectedNote = null;
+        if (cleanMsg) {
+          const lowerSearch = cleanMsg.toLowerCase();
+          selectedNote = db.notes.find(n => 
+            n.title.toLowerCase().includes(lowerSearch) || 
+            lowerSearch.includes(n.title.toLowerCase())
+          );
+
+          if (!selectedNote) {
+            // Fuzzy/semantic backup
+            let bestScore = -1;
+            for (const n of db.notes) {
+              const score = getLocalSemanticSimilarity(cleanMsg, `${n.title} ${(n.tags || []).join(' ')}`);
+              if (score > bestScore && score > 0.1) {
+                bestScore = score;
+                selectedNote = n;
+              }
+            }
+          }
+        }
+
+        // Fallback to latest note if none match or search query empty
+        if (!selectedNote) {
+          selectedNote = db.notes[db.notes.length - 1];
+        }
+
+        if (!selectedNote) {
+          return {
+            consoleLogs: [`Executing Tool: send_email("${targetEmail}")`, `Error: No notes found in database.`],
+            response: `I tried to send an email to **${targetEmail}**, but you don't have any notes in your library yet!`
+          };
+        }
+
+        emailSubject = `MindSync Note: ${selectedNote.title}`;
+        emailBody = selectedNote.content || selectedNote.summary || 'Empty note content.';
+        itemDescription = `note "${selectedNote.title}"`;
+      }
       
       try {
         const result = await sendRealEmail(db.settings, targetEmail, emailSubject, emailBody);
@@ -1645,7 +1782,7 @@ ${revisitSection}
             `SMTP Host: ${db.settings.smtpHost}`,
             `Sent email with subject: "${emailSubject}"`
           ],
-          response: `Sent! 📧 I have successfully emailed your latest note, **"${latestNote.title}"**, to **${targetEmail}**.`
+          response: `Sent! 📧 I have successfully emailed your ${itemDescription} to **${targetEmail}**.`
         };
       } catch (e) {
         return {
@@ -1653,7 +1790,7 @@ ${revisitSection}
             `Executing Tool: send_email("${targetEmail}")`,
             `SMTP error: ${e.message}`
           ],
-          response: `I tried to email the latest note, but I couldn't send it: **${e.message}**.\n\nPlease open **Settings** (gear icon / button at the bottom left) and make sure your **Email SMTP Configuration** is set up correctly.`
+          response: `I tried to email the requested item, but I couldn't send it: **${e.message}**.\n\nPlease open **Settings** (gear icon / button at the bottom left) and make sure your **Email SMTP Configuration** is set up correctly.`
         };
       }
     }
@@ -1893,8 +2030,17 @@ const server = http.createServer(async (req, res) => {
     const db = await readDB();
 
     if (pathname === '/api/notes' && req.method === 'GET') {
+      const filtered = db.notes.filter(n => !n.id.startsWith('note-digest-') && !n.title.startsWith('Daily Digest'));
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(db.notes));
+      res.end(JSON.stringify(filtered));
+      return;
+    }
+
+    if (pathname === '/api/daily-digest' && req.method === 'GET') {
+      const digestNotes = db.notes.filter(n => n.id.startsWith('note-digest-') || n.title.startsWith('Daily Digest'));
+      const latest = digestNotes.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt))[0] || null;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(latest));
       return;
     }
 
@@ -2412,9 +2558,29 @@ const server = http.createServer(async (req, res) => {
     if (pathname.startsWith('/api/actions/') && pathname.endsWith('/run') && req.method === 'POST') {
       const parts = pathname.split('/');
       const id = parts[3];
-      const updated = await runActionAgent(id);
+      try {
+        const updated = await runActionAgent(id);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(updated));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+      return;
+    }
+
+    if (pathname.startsWith('/api/actions/') && req.method === 'DELETE') {
+      const id = pathname.split('/')[3];
+      const idx = db.actions.findIndex(a => a.id === id);
+      if (idx === -1) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Action not found.' }));
+        return;
+      }
+      db.actions.splice(idx, 1);
+      await writeDB(db);
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(updated));
+      res.end(JSON.stringify({ success: true }));
       return;
     }
 

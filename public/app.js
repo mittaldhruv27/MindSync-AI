@@ -85,6 +85,7 @@ async function loadAllData() {
     allConflicts = await apiFetch('/api/conflicts');
     allSprouts = await apiFetch('/api/sprouts');
     allActions = await apiFetch('/api/actions');
+    const dailyDigest = await apiFetch('/api/daily-digest');
 
     renderNotesList(allNotes);
     renderTasksKanban(allTasks);
@@ -94,7 +95,7 @@ async function loadAllData() {
     renderGrowthChart(allNotes);
     
     // Load daily briefing note
-    renderDailyBriefing(allNotes);
+    renderDailyBriefing(dailyDigest);
 
 
 
@@ -609,13 +610,10 @@ async function showFullNote(id) {
 }
 
 // Render the Latest Daily Briefing summary in the Morning Briefing panel
-function renderDailyBriefing(notes) {
+function renderDailyBriefing(latestDigest) {
   const briefingBody = document.getElementById('digest-briefing-body');
   
-  // Find latest digest note
-  const digestNotes = notes.filter(n => n.id.startsWith('note-digest-') || n.title.startsWith('Daily Digest'));
-  if (digestNotes.length > 0) {
-    const latestDigest = digestNotes.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
+  if (latestDigest) {
     briefingBody.innerHTML = `
       <div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:8px;">Generated on ${new Date(latestDigest.createdAt).toLocaleString()}</div>
       <div class="digest-formatted-content">${latestDigest.content}</div>
@@ -706,7 +704,7 @@ async function triggerChatSubmit() {
     });
     consoleLogsDiv.scrollTop = consoleLogsDiv.scrollHeight;
 
-    // Reload layout items (e.g. if note created/webhook hit)
+    // Reload layout items (e.g. if note created)
     setTimeout(loadAllData, 1200);
 
   } catch (err) {
@@ -1112,7 +1110,6 @@ function initVoiceRecorderModule() {
           card.innerHTML = `
             <div class="pcard-header">
               <div class="pcard-badge pcard-badge-task">📋 Task</div>
-              <button class="pcard-dismiss" onclick="this.closest('.proposal-preview-card').remove()" title="Dismiss">×</button>
             </div>
             <div class="pcard-field">
               <label class="pcard-label">Task Title</label>
@@ -1128,7 +1125,6 @@ function initVoiceRecorderModule() {
           card.innerHTML = `
             <div class="pcard-header">
               <div class="pcard-badge">✦ Note</div>
-              <button class="pcard-dismiss" onclick="this.closest('.proposal-preview-card').remove()" title="Dismiss">×</button>
             </div>
             <div class="pcard-field">
               <label class="pcard-label">Title</label>
@@ -1230,8 +1226,10 @@ window.saveToTasksOnly     = window.acceptProposal;
 
 // --- MODULE 10: ACTIONS RUNNER ---
 function initActionsModule() {
+  // Open / close modal
   document.getElementById('btn-add-action').addEventListener('click', () => {
     document.getElementById('add-action-modal').classList.remove('hidden');
+    updateActionModalFields(); // reset on open
   });
   document.getElementById('btn-close-action-modal').addEventListener('click', () => {
     document.getElementById('add-action-modal').classList.add('hidden');
@@ -1240,80 +1238,193 @@ function initActionsModule() {
     document.getElementById('add-action-modal').classList.add('hidden');
   });
 
+  // Dynamic label/placeholder/visibility when type changes
+  document.getElementById('new-action-type').addEventListener('change', updateActionModalFields);
+
+  // Clear logs
+  document.getElementById('btn-clear-action-logs').addEventListener('click', () => {
+    const logs = document.getElementById('action-runs-logs');
+    logs.innerHTML = '<div class="log-entry system">Logs cleared.</div>';
+  });
+
+  // Save action
   document.getElementById('btn-save-new-action').addEventListener('click', async () => {
-    const name = document.getElementById('new-action-name').value.trim();
-    const type = document.getElementById('new-action-type').value;
+    const name   = document.getElementById('new-action-name').value.trim();
+    const type   = document.getElementById('new-action-type').value;
     const target = document.getElementById('new-action-target').value.trim();
 
-    if (name && target) {
-      try {
-        await apiFetch('/api/actions', {
-          method: 'POST',
-          body: JSON.stringify({ name, type, target })
-        });
-        logActivity('Action Runner', `Registered custom action: "${name}"`);
-        document.getElementById('new-action-name').value = '';
-        document.getElementById('new-action-target').value = '';
-        document.getElementById('add-action-modal').classList.add('hidden');
-        await loadAllData();
-      } catch (err) {
-        alert(err.message);
-      }
+    // Digest needs no target — use 'internal' as placeholder
+    const resolvedTarget = type === 'digest' ? 'internal' : target;
+
+    if (!name) { alert('Please enter an action name.'); return; }
+    if (type !== 'digest' && !resolvedTarget) {
+      alert('Please enter a target destination.'); return;
+    }
+    if (type === 'email' && !/\S+@\S+\.\S+/.test(resolvedTarget)) {
+      alert('Email target must be a valid email address.'); return;
+    }
+
+    try {
+      await apiFetch('/api/actions', {
+        method: 'POST',
+        body: JSON.stringify({ name, type, target: resolvedTarget })
+      });
+      logActivity('Action Runner', `Registered action: "${name}" [${type.toUpperCase()}]`);
+      document.getElementById('new-action-name').value  = '';
+      document.getElementById('new-action-target').value = '';
+      document.getElementById('add-action-modal').classList.add('hidden');
+      await loadAllData();
+    } catch (err) {
+      alert(err.message);
     }
   });
 }
+
+function updateActionModalFields() {
+  const type        = document.getElementById('new-action-type').value;
+  const label       = document.getElementById('action-target-label');
+  const input       = document.getElementById('new-action-target');
+  const targetGroup = document.getElementById('action-target-group');
+
+  const config = {
+    export:  { label: 'Export Folder Path',    placeholder: 'e.g. ./exports/mindsync',    show: true },
+    email:   { label: 'Recipient Email',        placeholder: 'you@example.com',             show: true },
+    digest:  { label: '',                       placeholder: '',                             show: false }
+  };
+
+  const cfg = config[type] || config.export;
+  label.innerText         = cfg.label;
+  input.placeholder       = cfg.placeholder;
+  targetGroup.style.display = cfg.show ? '' : 'none';
+}
+
+// Type icons for action cards
+const ACTION_TYPE_META = {
+  export:  { icon: '📁', label: 'Export',  desc: 'Writes all notes as .md files to a local folder.' },
+  email:   { icon: '✉️', label: 'Email',   desc: 'Sends an email summary to the configured address.' },
+  digest:  { icon: '📰', label: 'Digest',  desc: 'Compiles a Daily Briefing note from tasks, conflicts, and sprouts.' }
+};
 
 function renderActionsList(actions) {
   const container = document.getElementById('actions-list');
   container.innerHTML = '';
 
+  if (!actions.length) {
+    container.innerHTML = '<p class="placeholder-text">No actions registered yet. Click "+ Create Action" to get started.</p>';
+    return;
+  }
+
   actions.forEach(action => {
+    const meta   = ACTION_TYPE_META[action.type] || { icon: '⚡', label: action.type, desc: '' };
+    const status = action.status;
+    const statusBadge = status
+      ? `<span style="font-size:0.65rem;padding:2px 8px;border-radius:20px;margin-left:6px;
+          background:${status==='success'?'rgba(16,185,129,0.15)':'rgba(239,68,68,0.15)'};
+          color:${status==='success'?'#10b981':'#ef4444'};
+          border:1px solid ${status==='success'?'rgba(16,185,129,0.3)':'rgba(239,68,68,0.3)'};">
+          ${status === 'success' ? '✓ Success' : '✗ Failed'}</span>`
+      : '';
+    const lastRun = action.lastRun
+      ? new Date(action.lastRun).toLocaleString()
+      : 'Never run';
+    const isBuiltIn    = action.id === 'action-digest';
+    const targetDisplay = action.target === 'internal' ? '—' : action.target;
+    // Show last error inline under the card if failed
+    const errorLine = (status === 'failed' && action.lastError)
+      ? `<div style="margin-top:5px;font-size:0.68rem;color:#ef4444;background:rgba(239,68,68,0.07);
+           border-left:2px solid #ef4444;padding:3px 8px;border-radius:0 4px 4px 0;">
+           ✗ ${action.lastError}</div>`
+      : '';
+
     const card = document.createElement('div');
     card.className = 'action-item-card';
     card.innerHTML = `
       <div class="action-item-info">
-        <h4>${action.name} ${action.status ? `<span class="run-status-badge ${action.status}">${action.status.toUpperCase()}</span>` : ''}</h4>
-        <span>Type: ${action.type.toUpperCase()} | Target: ${action.target}</span><br>
-        <span style="font-size:0.65rem;">Last Run: ${action.lastRun ? new Date(action.lastRun).toLocaleString() : 'Never'}</span>
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+          <span style="font-size:1rem;">${meta.icon}</span>
+          <h4 style="margin:0;font-size:0.9rem;">${action.name}${statusBadge}</h4>
+        </div>
+        <span style="font-size:0.72rem;color:var(--text-secondary);">${meta.desc}</span><br>
+        <span style="font-size:0.68rem;color:var(--text-muted);">
+          <b>Type:</b> ${meta.label} &nbsp;|&nbsp; <b>Target:</b> ${targetDisplay}
+        </span><br>
+        <span style="font-size:0.65rem;color:var(--text-muted);">Last run: ${lastRun}</span>
+        ${errorLine}
       </div>
-      <button class="primary-btn-sm" style="padding: 6px 12px; font-size:0.8rem;" onclick="runActionTrigger('${action.id}')">Execute</button>
+      <div style="display:flex;gap:6px;align-items:center;flex-shrink:0;">
+        <button id="run-btn-${action.id}" class="primary-btn-sm"
+          style="padding:6px 14px;font-size:0.8rem;min-width:60px;"
+          onclick="runActionTrigger('${action.id}')">▶ Run</button>
+        ${!isBuiltIn ? `<button onclick="deleteAction('${action.id}')" title="Delete action"
+          style="padding:6px 9px;font-size:0.8rem;background:transparent;border:1px solid rgba(239,68,68,0.3);
+          color:#ef4444;border-radius:8px;cursor:pointer;"
+          onmouseover="this.style.background='rgba(239,68,68,0.1)'"
+          onmouseout="this.style.background='transparent'">✕</button>` : ''}
+      </div>
     `;
     container.appendChild(card);
   });
 }
 
+window.deleteAction = async function(id) {
+  if (!confirm('Delete this action? This cannot be undone.')) return;
+  try {
+    await apiFetch(`/api/actions/${id}`, { method: 'DELETE' });
+    logActivity('Action Runner', 'Action deleted.');
+    await loadAllData();
+  } catch (err) {
+    alert(err.message);
+  }
+};
+
 window.runActionTrigger = async function(id) {
-  const logs = document.getElementById('action-runs-logs');
+  const logs   = document.getElementById('action-runs-logs');
   const action = allActions.find(a => a.id === id);
   if (!action) return;
 
+  const meta    = ACTION_TYPE_META[action.type] || { icon: '⚡', label: action.type };
   const logTime = new Date().toLocaleTimeString();
+
+  // Loading state on the button
+  const btn = document.getElementById(`run-btn-${id}`);
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+
   const startLog = document.createElement('div');
   startLog.className = 'log-entry';
-  startLog.innerText = `[${logTime}] Executing: "${action.name}"...`;
+  startLog.innerHTML = `<span style="color:var(--text-muted);">[${logTime}]</span> ${meta.icon} Running <b>${action.name}</b> <span style="color:var(--text-muted);font-size:0.72rem;">[${meta.label}]</span>…`;
   logs.appendChild(startLog);
+  logs.scrollTop = logs.scrollHeight;
 
   try {
-    const result = await apiFetch(`/api/actions/${id}/run`, { method: 'POST' });
-    const successTime = new Date().toLocaleTimeString();
+    const result     = await apiFetch(`/api/actions/${id}/run`, { method: 'POST' });
+    const doneTime   = new Date().toLocaleTimeString();
     const successLog = document.createElement('div');
     successLog.className = 'log-entry';
-    successLog.style.color = '#10b981';
-    successLog.innerText = `[${successTime}] Success. Status code: ${result.status.toUpperCase()}`;
+
+    let detail = '';
+    if (result.meta) {
+      if (result.meta.exportedCount !== undefined) detail = ` — ${result.meta.exportedCount} notes exported`;
+      if (result.meta.httpStatus)                 detail = ` — HTTP ${result.meta.httpStatus}`;
+      if (result.meta.previewUrl)                 detail = ` — <a href="${result.meta.previewUrl}" target="_blank" style="color:#d4af37;text-decoration:underline;">View sandbox email</a>`;
+      if (result.meta.recipient && !result.meta.sandbox) detail = ` — Sent to ${result.meta.recipient}`;
+    }
+    successLog.innerHTML = `<span style="color:var(--text-muted);">[${doneTime}]</span> <span style="color:#10b981;">✓ Completed${detail}</span>`;
     logs.appendChild(successLog);
-    logActivity('Action Runner', `Completed action "${action.name}" successfully.`);
-    await loadAllData();
+    logActivity('Action Runner', `"${action.name}" ran successfully.`);
+    await loadAllData(); // refresh card badge to ✓ Success
   } catch (err) {
     const failTime = new Date().toLocaleTimeString();
-    const failLog = document.createElement('div');
+    const failLog  = document.createElement('div');
     failLog.className = 'log-entry';
-    failLog.style.color = 'var(--accent-red)';
-    failLog.innerText = `[${failTime}] Failed: ${err.message}`;
+    failLog.innerHTML = `<span style="color:var(--text-muted);">[${failTime}]</span> <span style="color:#ef4444;">✗ Failed — ${err.message}</span>`;
     logs.appendChild(failLog);
-    logActivity('Action Runner', `Failed to run action: "${action.name}"`);
+    logActivity('Action Runner', `"${action.name}" failed: ${err.message}`);
+    await loadAllData(); // refresh card badge to ✗ Failed + show lastError
   }
   logs.scrollTop = logs.scrollHeight;
 };
+
+
 
 // --- HELPER UTILITIES ---
 function debounce(func, wait) {
