@@ -90,6 +90,16 @@ function isRateLimited(ip) {
   return rateLimits[ip].count > 120; // Allow 120 requests/minute
 }
 
+// Clean up expired rate limiting entries every minute to prevent memory leak
+setInterval(() => {
+  const now = Date.now();
+  for (const ip in rateLimits) {
+    if (now > rateLimits[ip].resetTime) {
+      delete rateLimits[ip];
+    }
+  }
+}, 60000);
+
 function sanitizeInput(str) {
   if (typeof str !== 'string') return '';
   return str
@@ -2096,8 +2106,8 @@ const server = http.createServer(async (req, res) => {
       }
       const newNote = {
         id: 'note-' + crypto.randomBytes(4).toString('hex'),
-        title: sanitizeInput(body.title),
-        content: sanitizeInput(body.content),
+        title: body.title,
+        content: body.content,
         createdAt: new Date().toISOString()
       };
       db.notes.push(newNote);
@@ -2162,8 +2172,8 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       const body = await getRequestBody(req);
-      if (body.title) note.title = sanitizeInput(body.title);
-      if (body.content) note.content = sanitizeInput(body.content);
+      if (body.title) note.title = body.title;
+      if (body.content) note.content = body.content;
       
       await writeDB(db);
       
@@ -2312,8 +2322,8 @@ const server = http.createServer(async (req, res) => {
           } else if (tool === 'create_note') {
             const newN = {
               id: 'note-' + crypto.randomBytes(4).toString('hex'),
-              title: sanitizeInput(args.title),
-              content: sanitizeInput(args.content),
+              title: args.title,
+              content: args.content,
               createdAt: new Date().toISOString()
             };
             db.notes.push(newN);
@@ -2564,10 +2574,8 @@ const server = http.createServer(async (req, res) => {
       // Build the new note
       const newNote = {
         id: 'note-' + crypto.randomBytes(4).toString('hex'),
-        title: sanitizeInput(sprout.title),
-        content: sanitizeInput(
-          `### Concept Origin\n\nThis note was sprouted by cross-pollinating two ideas from your knowledge base.\n\n### Synthesized Idea\n\n${sprout.description}\n\n### Source Notes\n\n- ${sourceTitles[0] || 'Source A'}\n- ${sourceTitles[1] || 'Source B'}\n\n### Next Steps\n\nExpand on this concept by exploring connections, running experiments, or drafting an outline.`
-        ),
+        title: sprout.title,
+        content: `### Concept Origin\n\nThis note was sprouted by cross-pollinating two ideas from your knowledge base.\n\n### Synthesized Idea\n\n${sprout.description}\n\n### Source Notes\n\n- ${sourceTitles[0] || 'Source A'}\n- ${sourceTitles[1] || 'Source B'}\n\n### Next Steps\n\nExpand on this concept by exploring connections, running experiments, or drafting an outline.`,
         createdAt: new Date().toISOString()
       };
 

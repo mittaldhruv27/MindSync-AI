@@ -451,7 +451,27 @@ function renderNotesList(notes) {
 function formatNoteContent(content) {
   if (!content) return '';
   
-  let escaped = content
+  let escaped = content;
+  
+  // 1. Temporarily extract fenced code blocks to protect them from downstream regexes
+  const codeBlocks = [];
+  const codeBlockRegex = /```([\s\S]*?)```/g;
+  escaped = escaped.replace(codeBlockRegex, (match, code) => {
+    const placeholder = `__CODE_BLOCK_PLACEHOLDER_${codeBlocks.length}__`;
+    // Clean and escape code characters to make them print literally in HTML
+    const escapedCode = code.trim()
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+    
+    codeBlocks.push(`<pre style="background:rgba(255,255,255,0.035); border:1px solid rgba(255,255,255,0.08); padding:12px 16px; border-radius:8px; overflow-x:auto; margin: 14px 0; font-family:monospace; font-size:0.82rem; line-height:1.45; color:#e4e4e7; white-space:pre;"><code style="font-family:inherit;">${escapedCode}</code></pre>`);
+    return placeholder;
+  });
+
+  // 2. Perform normal HTML escaping on the remaining text
+  escaped = escaped
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
@@ -487,6 +507,11 @@ function formatNoteContent(content) {
   escaped = escaped.replace(/^&gt;\s*(.*$)/gim, '<blockquote style="border-left: 2px solid var(--accent); padding: 4px 12px; margin: 12px 0; color: var(--text-secondary); font-style: italic; background: rgba(255,255,255,0.01); border-radius: 0 4px 4px 0;">$1</blockquote>');
 
   escaped = escaped.replace(/\n/g, '<br>');
+
+  // 3. Restore the protected code blocks back to the HTML output
+  codeBlocks.forEach((blockHtml, idx) => {
+    escaped = escaped.replace(`__CODE_BLOCK_PLACEHOLDER_${idx}__`, blockHtml);
+  });
   
   return escaped;
 }

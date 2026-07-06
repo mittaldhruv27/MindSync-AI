@@ -5,7 +5,7 @@ description: Manage notes, tasks, search semantically, and connect thoughts in y
 
 # MindSync AI Customization Skill
 
-MindSync AI is a zero-dependency, local-first Agentic Second Brain. It runs a local Node.js backend server (`server.js`) on port 3005 and exposes a JSON-RPC stdio Model Context Protocol (MCP) server.
+MindSync AI is a zero-dependency, local-first Agentic Second Brain. It runs a local Node.js backend server (`server.js`) on port 3000 and exposes a JSON-RPC stdio Model Context Protocol (MCP) server.
 
 ## Launching MindSync AI
 
@@ -13,7 +13,7 @@ To start the server, open a terminal in the project directory and run:
 ```bash
 node server.js
 ```
-The client UI will be available at `http://localhost:3005`.
+The client UI will be available at `http://localhost:3000`.
 
 ## Integrating the MCP Server
 
@@ -26,9 +26,9 @@ Add the following configuration to your `mcp_config.json` (located in the global
   "mcpServers": {
     "mindsync": {
       "command": "node",
-      "args": ["/Users/krishverma/Desktop/MindSyncAI/MindSync-AI/mcp_server.js"],
+      "args": ["/Users/krishverma/Desktop/MindSync-AI/mcp_server.js"],
       "env": {
-        "PORT": "3005",
+        "PORT": "3000",
         "API_SECRET": "mindsync_secret_passphrase_2026"
       }
     }
