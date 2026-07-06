@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MindSync AI — The Agentic Second Brain</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+  <!-- Top Announcement / Status Bar -->
+  <header class="top-bar">
+    <div class="logo-area">
+      <img src="favicon.svg" alt="MindSync AI Logo" class="logo-icon">
+      <span class="logo-text">MindSync <span class="accent-text">AI</span></span>
+    </div>
+    <div class="header-right">
+      <div id="connection-status" class="status-badge connected">
+        <span class="indicator"></span>
+        Agent Server Online
+      </div>
+      <button id="btn-show-settings" class="icon-btn" title="Settings">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.1a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="app-layout">
+    <!-- Sidebar Navigation -->
+    <nav class="sidebar">
+      <ul class="nav-menu">
+        <li class="nav-item active" data-panel="dashboard">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
+          <span>Dashboard</span>
+        </li>
+        <li class="nav-item" data-panel="notes">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+          <span>Notes Library</span>
+        </li>
+        <li class="nav-item" data-panel="graph">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+          <span>Knowledge Graph</span>
+        </li>
+        <li class="nav-item" data-panel="chat">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <span>Agent Chat</span>
+        </li>
+        <li class="nav-item" data-panel="tasks">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/><path d="m9 14 2 2 4-4"/></svg>
+          <span>Task Board</span>
+        </li>
+        <li class="nav-item" data-panel="conflicts">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          <span>Conflict Center</span>
+        </li>
+        <li class="nav-item" data-panel="sprouts">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+          <span>Concept Sprouts</span>
+        </li>
+        <li class="nav-item" data-panel="recorder">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
+          <span>Voice Recorder</span>
+        </li>
+        <li class="nav-item" data-panel="actions">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          <span>Action Runner</span>
+        </li>
+      </ul>
+      <div class="sidebar-footer">
+        <span class="version-label">v1.1 Capstone</span>
+      </div>
+    </nav>
+
+    <!-- Main Content Area -->
+    <main class="content-viewport">
+      
+      <!-- Panel 1: Dashboard Overview -->
+      <section id="panel-dashboard" class="panel-section active">
+        <div class="panel-header">
+          <h1>Dashboard Overview</h1>
+          <p class="subtitle">Real-time status of your second brain agents.</p>
+        </div>
+
+        <div class="dashboard-grid">
+          <!-- Stats Grid -->
+          <div class="stats-row">
+            <div class="stat-card">
+              <div class="stat-icon purple-glow">📚</div>
+              <div class="stat-info">
+                <span id="stat-notes" class="stat-number">0</span>
+                <span class="stat-label">Total Notes</span>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon yellow-glow">📋</div>
+              <div class="stat-info">
+                <span id="stat-tasks" class="stat-number">0</span>
+                <span class="stat-label">Open Tasks</span>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon red-glow">⚔️</div>
+              <div class="stat-info">
+                <span id="stat-conflicts" class="stat-number">0</span>
+                <span class="stat-label">Conflicts</span>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon cyan-glow">💡</div>
+              <div class="stat-info">
+                <span id="stat-sprouts" class="stat-number">0</span>
+                <span class="stat-label">Sprout Ideas</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Morning Briefing Card -->
+          <div class="briefing-card glass-panel">
+            <div class="briefing-header">
+              <h3>🌅 Morning Briefing</h3>
+              <button id="btn-refresh-digest" class="action-btn-sm">Run Digest</button>
+            </div>
+            <div id="digest-briefing-body" class="briefing-content">
+              Loading latest daily briefing summary...
+            </div>
+          </div>
+
+          <!-- Chart and Timeline Row -->
+          <div class="dashboard-row">
+            <div class="chart-panel glass-panel">
+              <h3>📈 Brain Density Growth</h3>
+              <div class="chart-wrapper">
+                <canvas id="growthChart"></canvas>
+              </div>
+            </div>
+            <div class="timeline-panel glass-panel">
+              <h3>🤖 Agent Activity Logs</h3>
+              <div id="activity-timeline" class="activity-timeline">
+                <div class="timeline-item">
+                  <span class="time">Just now</span>
+                  <span class="event"><b>[Ingestion Agent]</b> Seeding initial mock database configuration.</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Panel 2: Notes Library -->
+      <section id="panel-notes" class="panel-section">
+        <div class="panel-header-row">
+          <div class="panel-header">
+            <h1>Notes Library</h1>
+            <p class="subtitle">Manage and search your second brain repositories.</p>
+          </div>
+          <button id="btn-add-note" class="primary-btn">+ Create Note</button>
+        </div>
+
+        <div class="library-toolbar">
+          <div class="search-bar-container">
+            <input type="text" id="note-search-input" placeholder="Search notes...">
+            <button id="btn-toggle-search-mode" class="mode-toggle-btn semantic-off" title="Toggle Semantic Search">
+              <span class="toggle-indicator"></span> Keyword
+            </button>
+          </div>
+          <div class="web-clipper-bar glass-panel">
+            <input type="text" id="clip-url-input" placeholder="Paste article URL to clip...">
+            <button id="btn-clip-url" class="accent-btn">Clip Article</button>
+          </div>
+        </div>
+
+        <div id="notes-grid" class="notes-grid">
+          <!-- Dynamically populated note cards -->
+        </div>
+      </section>
+
+      <!-- Panel 3: Knowledge Graph -->
+      <section id="panel-graph" class="panel-section">
+        <div class="panel-header">
+          <h1>Knowledge Graph</h1>
+          <p class="subtitle">Interactive spring-physics visualization of semantic relationships.</p>
+        </div>
+
+        <div class="graph-container glass-panel">
+          <div class="graph-hud">
+            <span>Scroll to Zoom | Drag to Pan & Orbit | Hover to Highlight</span>
+            <button id="btn-reset-graph" class="action-btn-sm">Recenter</button>
+          </div>
+          <canvas id="graph-canvas"></canvas>
+          
+          <div id="graph-preview-panel" class="graph-preview-panel hidden">
+            <h4 id="graph-node-title">Note Title</h4>
+            <p id="graph-node-summary">Note summary preview...</p>
+            <div id="graph-node-tags" class="tag-row"></div>
+            <button id="btn-graph-view-full" class="primary-btn-sm">Open Full Note</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Panel 4: Agent Chat -->
+      <section id="panel-chat" class="panel-section">
+        <div class="panel-header">
+          <h1>Agent Chat</h1>
+          <p class="subtitle">Converse with your Second Brain via local RAG Agent.</p>
+        </div>
+
+        <div class="chat-container">
+          <div class="chat-main glass-panel">
+            <div class="chat-header">
+              <div class="agent-profile">
+                <span class="avatar">💬</span>
+                <div>
+                  <h4>MindSync Concierge Agent</h4>
+                  <span class="role-badge">RAG Active</span>
+                </div>
+              </div>
+              <div class="model-select">
+                <select id="chat-agent-role">
+                  <option value="concierge">Concierge (Default)</option>
+                  <option value="critic">Critical Analyst</option>
+                  <option value="creative">Creative Synthesizer</option>
+                </select>
+              </div>
+            </div>
+            
+            <div id="chat-messages" class="chat-messages">
+              <!-- Seed Messages -->
+              <div class="message system">
+                <div class="message-content">
+                  Hello! I am your MindSync agent. I can help you search, summarize, create, and refine notes. Try asking: <em>"Find notes about security configuration"</em>.
+                </div>
+              </div>
+            </div>
+
+            <div class="chat-input-bar">
+              <input type="text" id="chat-user-input" placeholder="Type a message or command (e.g. list tasks)...">
+              <button id="btn-send-chat" class="primary-btn">Send</button>
+            </div>
+          </div>
+
+          <!-- Agent Console showing tool calls -->
+          <div class="chat-console glass-panel">
+            <div class="console-header">
+              <span>📟 Agent Trace Logs</span>
+              <button id="btn-clear-console" class="icon-btn-sm" title="Clear">🧹</button>
+            </div>
+            <div id="console-logs" class="console-logs">
+              <div class="log-entry system">Agent Console Initialized. Waiting for chat events...</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Panel 5: Task Board -->
+      <section id="panel-tasks" class="panel-section">
+        <div class="panel-header-row">
+          <div class="panel-header">
+            <h1>Task Board</h1>
+            <p class="subtitle">Manage action items extracted from notes.</p>
+          </div>
+          <button id="btn-plan-day" class="accent-btn">⚡ Plan My Day</button>
+        </div>
+
+        <div class="kanban-board">
+          <!-- Column 1 -->
+          <div class="kanban-column" data-status="todo">
+            <div class="column-header">
+              <span>To Do</span>
+              <span id="count-todo" class="badge">0</span>
+            </div>
+            <div class="kanban-cards-container" id="tasks-todo">
+              <!-- cards -->
+            </div>
+          </div>
+          <!-- Column 2 -->
+          <div class="kanban-column" data-status="in_progress">
+            <div class="column-header">
+              <span>In Progress</span>
+              <span id="count-progress" class="badge">0</span>
+            </div>
+            <div class="kanban-cards-container" id="tasks-progress">
+              <!-- cards -->
+            </div>
+          </div>
+          <!-- Column 3 -->
+          <div class="kanban-column" data-status="done">
+            <div class="column-header">
+              <span>Done</span>
+              <span id="count-done" class="badge">0</span>
+            </div>
+            <div class="kanban-cards-container" id="tasks-done">
+              <!-- cards -->
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Panel 6: Conflict Center -->
+      <section id="panel-conflicts" class="panel-section">
+        <div class="panel-header">
+          <h1>Conflict Center</h1>
+          <p class="subtitle">Resolve contradictions flagged by semantic comparison agent.</p>
+        </div>
+
+        <div id="conflicts-list" class="conflicts-list">
+          <!-- Dynamic Conflict Cards -->
+        </div>
+      </section>
+
+      <!-- Panel 7: Concept Sprouts -->
+      <section id="panel-sprouts" class="panel-section">
+        <div class="panel-header-row">
+          <div class="panel-header">
+            <h1>Concept Sprouts</h1>
+            <p class="subtitle">Cross-pollinate topically distant notes to sprout new ideas.</p>
+          </div>
+          <button id="btn-trigger-sprout" class="primary-btn">🌱 Generate New Sprouts</button>
+        </div>
+
+        <div id="sprouts-grid" class="sprouts-grid">
+          <!-- Sprouts Cards -->
+        </div>
+      </section>
+
+      <!-- Panel 8: Voice Recorder -->
+      <section id="panel-recorder" class="panel-section">
+        <div class="panel-header">
+          <h1>Voice Brain Dump</h1>
+          <p class="subtitle">Speak your mind. Refine transcript into structured notes automatically.</p>
+        </div>
+
+        <div class="recorder-container glass-panel">
+          <div class="recorder-hud">
+            <button id="btn-record-mic" class="mic-btn">
+              <span class="mic-icon">🎙️</span>
+              <div class="pulse-ring"></div>
+            </button>
+            <div id="record-status" class="record-status">Click microphone to start recording...</div>
+          </div>
+
+          <div class="recorder-layout">
+            <div class="input-pane">
+              <h3>Live Transcription</h3>
+              <textarea id="voice-transcript-text" placeholder="Your speech will render here in real-time, or you can paste messy text dump here manually..."></textarea>
+              <button id="btn-refine-dump" class="accent-btn">✨ Refine Brain Dump</button>
+            </div>
+
+            <div class="output-pane">
+              <h3>Refined Proposal Preview</h3>
+              <div id="refiner-proposals" class="proposals-container">
+                <p class="placeholder-text">Click "Refine" to generate structured proposals.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Panel 9: Action Runner -->
+      <section id="panel-actions" class="panel-section">
+        <div class="panel-header-row">
+          <div class="panel-header">
+            <h1>Action Runner</h1>
+            <p class="subtitle">Execute webhooks, folder exports, and backups.</p>
+          </div>
+          <button id="btn-add-action" class="primary-btn">+ Create Action</button>
+        </div>
+
+        <div class="actions-layout">
+          <div class="actions-list-panel glass-panel">
+            <h3>Registered Integrations</h3>
+            <div id="actions-list" class="actions-list">
+              <!-- actions -->
+            </div>
+          </div>
+
+          <div class="actions-logs-panel glass-panel">
+            <h3>Execution Activity History</h3>
+            <div id="action-runs-logs" class="console-logs">
+              <div class="log-entry system">Action Runner listening for task triggers...</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- Note Detail Modal -->
+  <div id="note-modal" class="modal-overlay hidden">
+    <div class="modal-container glass-panel">
+      <div class="modal-header">
+        <h2 id="modal-note-title">Note Detail</h2>
+        <button id="btn-close-modal" class="close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="modal-note-meta">
+          <span id="modal-note-date">July 6, 2026</span>
+          <div id="modal-note-tags" class="tag-row"></div>
+        </div>
+        <div class="modal-summary-box">
+          <h4>💡 Agent Summary</h4>
+          <p id="modal-note-summary">Summary text...</p>
+        </div>
+        <div class="modal-note-content-area">
+          <h4>Content</h4>
+          <div id="modal-note-content" class="note-content-markdown">Content body...</div>
+        </div>
+        <div class="modal-relations-section">
+          <h4>🔗 Related Notes (Auto-Linked)</h4>
+          <div id="modal-note-relations" class="relations-list">
+            <!-- linked notes -->
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-modal-delete-note" class="danger-btn">Delete Note</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Note Modal -->
+  <div id="add-note-modal" class="modal-overlay hidden">
+    <div class="modal-container glass-panel">
+      <div class="modal-header">
+        <h2>Create New Note</h2>
+        <button id="btn-close-add-modal" class="close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="new-note-title">Title</label>
+          <input type="text" id="new-note-title" placeholder="Enter note title...">
+        </div>
+        <div class="form-group">
+          <label for="new-note-content">Content</label>
+          <textarea id="new-note-content" rows="8" placeholder="Type your notes here, add task items starting with '-'..."></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-cancel-add" class="danger-btn">Cancel</button>
+        <button id="btn-save-new-note" class="primary-btn">Save Note</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings Drawer / Modal -->
+  <div id="settings-modal" class="modal-overlay hidden">
+    <div class="modal-container glass-panel">
+      <div class="modal-header">
+        <h2>Configuration Settings</h2>
+        <button id="btn-close-settings" class="close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="settings-token">API secret (Bearer auth Token)</label>
+          <input type="password" id="settings-token" placeholder="Bearer Token...">
+          <small>Match the <code>API_SECRET</code> defined in your <code>.env</code> file. Defaults to <code>mindsync_secret_passphrase_2026</code>.</small>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-save-settings" class="primary-btn">Save Credentials</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Action Modal -->
+  <div id="add-action-modal" class="modal-overlay hidden">
+    <div class="modal-container glass-panel">
+      <div class="modal-header">
+        <h2>Register Integration Action</h2>
+        <button id="btn-close-action-modal" class="close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="new-action-name">Action Name</label>
+          <input type="text" id="new-action-name" placeholder="e.g. Export Notes to Local Backup">
+        </div>
+        <div class="form-group">
+          <label for="new-action-type">Action Type</label>
+          <select id="new-action-type">
+            <option value="export">Export to Markdown Folder</option>
+            <option value="webhook">Webhook POST Endpoint</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="new-action-target">Target Destination</label>
+          <input type="text" id="new-action-target" placeholder="Folder path (e.g. ./exports) or Webhook URL">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-cancel-action" class="danger-btn">Cancel</button>
+        <button id="btn-save-new-action" class="primary-btn">Save Action</button>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

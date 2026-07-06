@@ -1,0 +1,181 @@
+{
+  "notes": [
+    {
+      "id": "note-1",
+      "title": "MindSync Architecture Design",
+      "content": "MindSync AI uses a pure Node.js HTTP server. It runs completely local-first with zero dependencies. The agent framework features seven distinct agents working on a shared database state (db.json). Tool use is supported through direct Gemini API calls and JSON-RPC Model Context Protocol (MCP). Make sure to implement rate limiting and request sanitization on all API routes.",
+      "summary": "MindSync AI is built on a zero-dependency, local-first Node.js architecture. It coordinates seven autonomous agents using a shared JSON database state. Communication is handled via local HTTP routes and standard Model Context Protocol over stdio.",
+      "tags": [
+        "architecture",
+        "nodejs",
+        "agents",
+        "mcp",
+        "security"
+      ],
+      "actionItems": [
+        "Implement rate limiting on all API routes",
+        "Add input sanitization for note creation",
+        "Configure MCP server for stdio protocol"
+      ],
+      "embedding": [
+        0.1,
+        -0.2,
+        0.05,
+        0.4,
+        -0.1
+      ],
+      "seeAlso": [
+        "note-2",
+        "note-3"
+      ],
+      "createdAt": "2026-07-06T12:00:00.000Z"
+    },
+    {
+      "id": "note-2",
+      "title": "Agentic AI Design Patterns",
+      "content": "Modern agentic systems rely on orchestration, tool access, and dynamic routing. Instead of a single large model prompt, specialized sub-agents perform individual tasks such as ingestion, web clipping, conflict detection, and concept generation. Agents must communicate structured outputs, often using JSON formats. Security guards should wrap all agent tool executions to prevent prompt injection and unauthorized command execution.",
+      "summary": "Specialized sub-agents are preferred over single monolithic prompts in agentic design patterns. Agents coordinate tasks through structured JSON communication and tool access. Input verification and execution guards are vital security components.",
+      "tags": [
+        "agents",
+        "design-patterns",
+        "ai",
+        "security"
+      ],
+      "actionItems": [
+        "Create tool access wrapper for Chat Agent",
+        "Setup prompt injection validation guidelines"
+      ],
+      "embedding": [
+        0.12,
+        -0.18,
+        0.04,
+        0.38,
+        -0.08
+      ],
+      "seeAlso": [
+        "note-1"
+      ],
+      "createdAt": "2026-07-06T12:05:00.000Z"
+    },
+    {
+      "id": "note-3",
+      "title": "Local-First App Security Guidelines",
+      "content": "Local-first apps require security boundaries even on host machines. Secure endpoints using Bearer token authentication stored locally. Implement a strict rate-limiting mechanism to avoid denial-of-service attempts by malicious browser extensions. Ensure that user inputs are sanitized of HTML tags and Javascript blocks to prevent Stored XSS. Do not write credentials or API keys directly to public files or Git repositories.",
+      "summary": "Security boundaries are essential for local-first applications on host environments. Key guidelines include Bearer token authentication, rate limiting, and inputs sanitization to prevent Stored XSS. Sensitive credentials must be isolated from repository files.",
+      "tags": [
+        "security",
+        "local-first",
+        "nodejs",
+        "best-practices"
+      ],
+      "actionItems": [
+        "Exclude .env from markdown export functionality",
+        "Restrict client-side API token access"
+      ],
+      "embedding": [
+        0.08,
+        -0.15,
+        0.02,
+        0.42,
+        -0.15
+      ],
+      "seeAlso": [
+        "note-1"
+      ],
+      "createdAt": "2026-07-06T12:10:00.000Z"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "task-1",
+      "title": "Implement rate limiting on all API routes",
+      "status": "todo",
+      "priority": "high",
+      "noteId": "note-1",
+      "createdAt": "2026-07-06T12:00:00.000Z"
+    },
+    {
+      "id": "task-2",
+      "title": "Add input sanitization for note creation",
+      "status": "todo",
+      "priority": "high",
+      "noteId": "note-1",
+      "createdAt": "2026-07-06T12:00:00.000Z"
+    },
+    {
+      "id": "task-3",
+      "title": "Configure MCP server for stdio protocol",
+      "status": "todo",
+      "priority": "medium",
+      "noteId": "note-1",
+      "createdAt": "2026-07-06T12:00:00.000Z"
+    },
+    {
+      "id": "task-4",
+      "title": "Create tool access wrapper for Chat Agent",
+      "status": "in_progress",
+      "priority": "medium",
+      "noteId": "note-2",
+      "createdAt": "2026-07-06T12:05:00.000Z"
+    },
+    {
+      "id": "task-5",
+      "title": "Exclude .env from markdown export functionality",
+      "status": "done",
+      "priority": "high",
+      "noteId": "note-3",
+      "createdAt": "2026-07-06T12:10:00.000Z"
+    }
+  ],
+  "conflicts": [
+    {
+      "id": "conflict-1",
+      "notes": [
+        "note-1",
+        "note-3"
+      ],
+      "description": "Conflict in note-1 claiming 'zero security requirements for local endpoints' vs note-3 requiring 'strict Bearer token authentication'.",
+      "resolution": "Enforce Bearer tokens in server.js config even for localhost testing.",
+      "status": "unresolved",
+      "createdAt": "2026-07-06T12:15:00.000Z"
+    }
+  ],
+  "sprouts": [
+    {
+      "id": "sprout-1",
+      "title": "Decentralized MCP Security Protocol",
+      "description": "An idea bridging 'mcp' in Note 1 and 'local-first security' in Note 3: Draft an authorization specification where local MCP tools verify requests using single-use challenge-response tokens signed by the master agent server.",
+      "sourceNotes": [
+        "note-1",
+        "note-3"
+      ],
+      "createdAt": "2026-07-06T12:20:00.000Z"
+    }
+  ],
+  "actions": [
+    {
+      "id": "action-1",
+      "name": "Export Notes to Markdown Folder",
+      "type": "export",
+      "target": "./markdown_exports",
+      "lastRun": null,
+      "status": null
+    },
+    {
+      "id": "action-2",
+      "name": "Slack Webhook Integration",
+      "type": "webhook",
+      "target": "https://hooks.slack.com/services/mock-endpoint",
+      "lastRun": null,
+      "status": null
+    },
+    {
+      "id": "action-digest",
+      "name": "Generate Daily Briefing Note",
+      "type": "digest",
+      "target": "notes-library",
+      "lastRun": null,
+      "status": null
+    }
+  ]
+}
