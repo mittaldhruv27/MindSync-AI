@@ -609,23 +609,103 @@ async function showFullNote(id) {
   }
 }
 
+// Populate the live date pill in the briefing header
+function updateBriefingDatePill() {
+  const pill = document.getElementById('briefing-date-pill');
+  if (!pill) return;
+  const now = new Date();
+  pill.textContent = now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+}
+updateBriefingDatePill();
+
 // Render the Latest Daily Briefing summary in the Morning Briefing panel
 function renderDailyBriefing(latestDigest) {
   const briefingBody = document.getElementById('digest-briefing-body');
-  
-  if (latestDigest) {
+
+  if (!latestDigest) {
     briefingBody.innerHTML = `
-      <div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:8px;">Generated on ${new Date(latestDigest.createdAt).toLocaleString()}</div>
-      <div class="digest-formatted-content">${latestDigest.content}</div>
-    `;
-  } else {
-    briefingBody.innerHTML = `
-      <p class="placeholder-text" style="text-align:left; margin-top:10px;">
-        No briefing summaries generated yet. Run the "Daily Briefing" action inside the Action Runner panel or click "Run Digest" above to compile one.
-      </p>
-    `;
+      <div class="briefing-empty-state">
+        <!-- Material: article / notes outlined - clean document shape -->
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor" style="opacity:0.2;color:var(--text-muted)"><path d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm-7 3h5v2h-5V6zm0 4h5v2h-5v-2zm-4 6H8v-2h7v2zm0-4H8v-2h7v2zm-3-4H8V6h2v2z"/></svg>
+        <p>No briefing generated yet. Click <strong>Refresh</strong> to compile today's digest.</p>
+      </div>`;
+
+    return;
   }
+
+  // Parse the raw markdown content into sections
+  const raw = latestDigest.content || '';
+
+  function extractSection(content, heading) {
+    const regex = new RegExp(`\\*\\*${heading}[^\\n]*\\*\\*[^\\n]*\\n([\\s\\S]*?)(?=\\n\\*\\*|\\n---|\n###|$)`);
+    const match = content.match(regex);
+    if (!match) return [];
+    return match[1].split('\n')
+      .map(l => l.replace(/^[-*•]\s*\[[ x]\]\s*/, '').replace(/^[-*•]\s*/, '').trim())
+      .filter(Boolean);
+  }
+
+  function extractRevision(content) {
+    const match = content.match(/Memory Consolidation[\s\S]*?\n([\s\S]*?)(?:\n---|$)/);
+    if (!match) return '';
+    return match[1].replace(/^>\s*/gm, '').replace(/^\*|\*$/g, '').trim();
+  }
+
+  const tasks     = extractSection(raw, 'Open Tasks');
+  const conflicts = extractSection(raw, 'Unresolved Conflicts');
+  const sprouts   = extractSection(raw, 'New Concept Sprouts');
+  const revisit   = extractRevision(raw);
+
+  const genTime = new Date(latestDigest.createdAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+
+  // Contextually meaningful icons per section
+  const SECTION_ICONS = {
+    // Hourglass = pending / in-progress tasks
+    tasks:     `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 22h14"/><path d="M5 2h14"/><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/></svg>`,
+    // Two arrows pulling in opposite directions = contradiction / conflict
+    conflicts: `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 4l4 4-4 4"/><path d="M3 12V8a4 4 0 0 1 4-4h14"/><path d="M7 20l-4-4 4-4"/><path d="M21 12v4a4 4 0 0 1-4 4H3"/></svg>`,
+    // Intersecting circles = cross-pollination of ideas / concept sprouts
+    sprouts:   `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="12" r="5"/><circle cx="15" cy="12" r="5"/></svg>`,
+    // Open eye on a bookmark = memory retrieval / revisit
+    revisit:   `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`
+  };
+
+  function makeSection(dotColor, label, items, emptyMsg, iconKey) {
+    const icon = SECTION_ICONS[iconKey] || '';
+    const rows = items.length
+      ? items.map(t => `<div class="briefing-row-item"><span class="bri-bullet" style="color:${dotColor};"></span><span>${t}</span></div>`).join('')
+      : `<div class="briefing-row-item" style="opacity:0.4;font-style:italic;"><span class="bri-bullet" style="color:var(--text-muted);"></span><span>${emptyMsg}</span></div>`;
+    return `
+      <div class="briefing-section">
+        <div class="briefing-section-label" style="color:${dotColor};">
+          ${icon}${label}
+        </div>
+        <div class="briefing-section-body">${rows}</div>
+      </div>`;
+  }
+
+  let html = `<div class="briefing-meta">Generated at ${genTime}</div>`;
+  html += makeSection('#60a5fa', 'Open Tasks',     tasks,     'No open tasks — all caught up!', 'tasks');
+  html += `<div class="briefing-divider"></div>`;
+  html += makeSection('#ef4444', 'Conflicts',      conflicts, 'No conflicts detected.',          'conflicts');
+  html += `<div class="briefing-divider"></div>`;
+  html += makeSection('#a78bfa', 'Concept Sprouts',sprouts,   'No new sprouts yet.',             'sprouts');
+
+  if (revisit) {
+    html += `<div class="briefing-divider"></div>`;
+    html += `
+      <div class="briefing-section">
+        <div class="briefing-section-label" style="color:#eab308;">
+          ${SECTION_ICONS.revisit}Revisit Today
+        </div>
+        <div class="briefing-section-body" style="font-style:italic;">${revisit}</div>
+      </div>`;
+  }
+
+
+  briefingBody.innerHTML = html;
 }
+
 
 // Refresh morning briefing manually
 document.getElementById('btn-refresh-digest').addEventListener('click', async () => {
@@ -997,28 +1077,19 @@ window.convertSproutToNote = async function(id) {
   const sprout = allSprouts.find(s => s.id === id);
   if (!sprout) return;
 
-  const sourceTitles = sprout.sourceTitles || sprout.sourceNotes.map(sid => {
-    const n = allNotes.find(n => n.id === sid);
-    return n ? n.title : sid;
-  });
-
   try {
     logActivity('Sprout Engine', `Growing sprout into note: "${sprout.title}"`);
-    await apiFetch('/api/notes', {
-      method: 'POST',
-      body: JSON.stringify({
-        title: sprout.title,
-        content: `### Concept Origin\n\nThis note was sprouted by cross-pollinating two ideas from your knowledge base.\n\n### Synthesized Idea\n\n${sprout.description}\n\n### Source Notes\n\n- ${sourceTitles[0] || 'Source A'}\n- ${sourceTitles[1] || 'Source B'}\n\n### Next Steps\n\nExpand on this concept by exploring connections, running experiments, or drafting an outline.`
-      })
-    });
-    // Remove the sprout once grown
-    await apiFetch(`/api/sprouts/${id}`, { method: 'DELETE' });
+
+    // Single atomic call: server creates the note AND removes the sprout in one db write
+    await apiFetch(`/api/sprouts/${id}/grow`, { method: 'POST' });
+
     logActivity('Ingestion', `Sprout grown into full note: "${sprout.title}"`);
     await loadAllData();
   } catch (err) {
     alert(err.message);
   }
 };
+
 
 
 // --- MODULE 9: VOICE RECORDER ---

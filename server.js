@@ -2001,7 +2001,15 @@ const server = http.createServer(async (req, res) => {
       };
       const contentType = mimeTypes[ext] || 'application/octet-stream';
       const content = await fs.promises.readFile(filePath);
-      res.writeHead(200, { 'Content-Type': contentType });
+      const noCacheExts = new Set(['.css', '.js', '.html']);
+      const cacheHeader = noCacheExts.has(ext)
+        ? 'no-cache, no-store, must-revalidate'
+        : 'public, max-age=3600';
+      res.writeHead(200, {
+        'Content-Type': contentType,
+        'Cache-Control': cacheHeader,
+        'Pragma': 'no-cache'
+      });
       res.end(content);
     } catch (err) {
       res.writeHead(404);
@@ -2499,6 +2507,46 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (pathname.startsWith('/api/sprouts/') && pathname.endsWith('/grow') && req.method === 'POST') {
+      const id = pathname.split('/')[3];
+      const sprout = db.sprouts.find(s => s.id === id);
+      if (!sprout) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Sprout not found.' }));
+        return;
+      }
+
+      // Resolve source note titles for the note content
+      const sourceTitles = sprout.sourceTitles ||
+        (sprout.sourceNotes || []).map(sid => {
+          const n = db.notes.find(n => n.id === sid);
+          return n ? n.title : sid;
+        });
+
+      // Build the new note
+      const newNote = {
+        id: 'note-' + crypto.randomBytes(4).toString('hex'),
+        title: sanitizeInput(sprout.title),
+        content: sanitizeInput(
+          `### Concept Origin\n\nThis note was sprouted by cross-pollinating two ideas from your knowledge base.\n\n### Synthesized Idea\n\n${sprout.description}\n\n### Source Notes\n\n- ${sourceTitles[0] || 'Source A'}\n- ${sourceTitles[1] || 'Source B'}\n\n### Next Steps\n\nExpand on this concept by exploring connections, running experiments, or drafting an outline.`
+        ),
+        createdAt: new Date().toISOString()
+      };
+
+      // Atomically: push note AND remove sprout in the same db state, then write once
+      db.notes.push(newNote);
+      db.sprouts = db.sprouts.filter(s => s.id !== id);
+      await writeDB(db);
+
+      // Fire ingestion in the background AFTER the db is already saved without the sprout
+      runIngestionAgent(newNote.id).catch(console.error);
+
+      console.log(`[Sprout Engine] Grew sprout "${sprout.title}" into note: ${newNote.id}`);
+      res.writeHead(201, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ note: newNote }));
+      return;
+    }
+
     if (pathname.startsWith('/api/sprouts/') && req.method === 'DELETE') {
       const id = pathname.substring(13);
       const exists = db.sprouts.some(s => s.id === id);
@@ -2513,6 +2561,7 @@ const server = http.createServer(async (req, res) => {
       res.end(JSON.stringify({ success: true }));
       return;
     }
+
 
     if (pathname === '/api/refine' && req.method === 'POST') {
       const body = await getRequestBody(req);
@@ -2540,6 +2589,12 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ error: 'name, type and target are required.' }));
         return;
       }
+      const allowedTypes = ['export', 'email', 'digest'];
+      if (!allowedTypes.includes(body.type)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: `Action type "${body.type}" is not supported. Allowed types: ${allowedTypes.join(', ')}.` }));
+        return;
+      }
       const newAction = {
         id: 'action-' + crypto.randomBytes(4).toString('hex'),
         name: sanitizeInput(body.name),
@@ -2554,6 +2609,7 @@ const server = http.createServer(async (req, res) => {
       res.end(JSON.stringify(newAction));
       return;
     }
+
 
     if (pathname.startsWith('/api/actions/') && pathname.endsWith('/run') && req.method === 'POST') {
       const parts = pathname.split('/');
@@ -2585,8 +2641,9 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === '/api/stats' && req.method === 'GET') {
+      const userNotes = db.notes.filter(n => !n.id.startsWith('note-digest-') && !n.title.startsWith('Daily Digest'));
       const stats = {
-        notesCount: db.notes.length,
+        notesCount: userNotes.length,
         tasksCount: db.tasks.filter(t => t.status !== 'done').length,
         conflictsCount: db.conflicts.filter(c => c.status === 'unresolved').length,
         sproutsCount: db.sprouts.length

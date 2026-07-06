@@ -6,8 +6,8 @@
   <title>MindSync AI — The Agentic Second Brain</title>
   <meta name="description" content="MindSync AI is a local-first agentic second brain.">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <link rel="stylesheet" href="app.css">
-  <script src="app.js" defer></script>
+  <link rel="stylesheet" href="app.css?v=20260707">
+  <script src="app.js?v=20260707" defer></script>
 </head>
 <body>
   <div class="app-layout">
@@ -136,39 +136,52 @@
           <div class="stats-row">
             <div class="stat-card">
               <div class="stat-icon purple-glow">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+                <!-- Stacked pages / notes -->
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/></svg>
               </div>
               <div class="stat-info"><span id="stat-notes" class="stat-number">0</span><span class="stat-label">Total Notes</span></div>
             </div>
             <div class="stat-card">
               <div class="stat-icon yellow-glow">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M9 14l2 2 4-4"/></svg>
+                <!-- Unfinished list with pending items -->
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><circle cx="4" cy="6" r="1.5"/><circle cx="4" cy="12" r="1.5"/><circle cx="4" cy="18" r="1.5"/></svg>
               </div>
               <div class="stat-info"><span id="stat-tasks" class="stat-number">0</span><span class="stat-label">Open Tasks</span></div>
             </div>
             <div class="stat-card">
               <div class="stat-icon red-glow">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                <!-- Two opposing arrows — contradiction / conflict -->
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 4l4 4-4 4"/><path d="M3 12V8a4 4 0 0 1 4-4h14"/><path d="M7 20l-4-4 4-4"/><path d="M21 12v4a4 4 0 0 1-4 4H3"/></svg>
               </div>
               <div class="stat-info"><span id="stat-conflicts" class="stat-number">0</span><span class="stat-label">Conflicts</span></div>
             </div>
             <div class="stat-card">
               <div class="stat-icon cyan-glow">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A5 5 0 0 0 8 8c0 1 .3 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>
+                <!-- Seedling sprouting — growth from knowledge -->
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22V12"/><path d="M12 12C12 12 7 10 5 6c4 0 7 2 7 6z"/><path d="M12 12c0 0 5-2 7-6-4 0-7 2-7 6z"/><path d="M5 20h14"/></svg>
               </div>
               <div class="stat-info"><span id="stat-sprouts" class="stat-number">0</span><span class="stat-label">Sprout Ideas</span></div>
             </div>
           </div>
           <div class="briefing-card glass-panel">
             <div class="briefing-header">
-              <h3>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px;color:var(--accent)"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
-                Morning Briefing
-              </h3>
-              <button id="btn-refresh-digest" class="action-btn-sm">↻ Refresh</button>
+              <div class="briefing-title-group">
+                <!-- Horizon sunrise — morning briefing -->
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" class="briefing-sun-icon"><path d="M12 2v4M4.93 4.93l2.83 2.83M2 12h4M19.07 4.93l-2.83 2.83M22 12h-4"/><path d="M5 17a7 7 0 0 1 14 0"/><line x1="2" y1="21" x2="22" y2="21"/></svg>
+                <span class="briefing-title-text">Daily Briefing</span>
+              </div>
+              <div class="briefing-header-right">
+                <span id="briefing-date-pill" class="briefing-date-pill"></span>
+                <button id="btn-refresh-digest" class="briefing-refresh-btn" title="Regenerate Digest">
+                  <!-- Material: sync filled - two clean half-arrows forming a cycle -->
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0 0 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74A7.93 7.93 0 0 0 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>
+                  Refresh
+                </button>
+              </div>
             </div>
             <div id="digest-briefing-body" class="briefing-content">Loading latest daily briefing summary...</div>
           </div>
+
           <div class="dashboard-row">
             <div class="chart-panel glass-panel">
               <h3>
