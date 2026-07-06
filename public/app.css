@@ -927,18 +927,23 @@ button {
 }
 
 .message.user .message-content {
-  background: var(--accent);
-  color: #000000;
+  background: rgba(234, 179, 8, 0.15);
+  border: 1px solid rgba(234, 179, 8, 0.25);
+  color: #ffffff;
   border-bottom-right-radius: 4px;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
 }
 
 .message.system .message-content {
   background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  color: #d4d4d8;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #e4e4e7;
   border-bottom-left-radius: 4px;
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
 }
 
 .chat-input-bar {
@@ -951,18 +956,22 @@ button {
 
 .chat-input-bar input {
   flex: 1;
-  background: var(--surface-hover);
-  border: 1px solid var(--surface-active);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: var(--radius);
   color: var(--text);
   padding: 10px 14px;
   font-size: 0.875rem;
   outline: none;
-  transition: border-color 0.15s;
+  transition: border-color 0.15s, background-color 0.15s;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.05);
 }
 
 .chat-input-bar input:focus {
-  border-color: var(--text-muted);
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .chat-console {
@@ -986,7 +995,7 @@ button {
 
 .console-logs {
   flex: 1;
-  background: var(--bg);
+  background: rgba(0, 0, 0, 0.2);
   padding: 10px;
   font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
   font-size: 0.75rem;
@@ -1058,6 +1067,7 @@ button {
 }
 
 .kanban-card {
+  position: relative;
   background: rgba(255, 255, 255, 0.02);
   border: var(--glass-border);
   border-radius: var(--radius);
@@ -1074,11 +1084,43 @@ button {
   border-color: rgba(255, 255, 255, 0.15);
 }
 
+.delete-task-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  transition: all 0.15s ease;
+}
+
+.delete-task-btn:hover {
+  color: #ffffff;
+  background: rgba(239, 68, 68, 0.6);
+  border-color: rgba(239, 68, 68, 0.8);
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.4);
+}
+
 .kanban-card h4 {
   font-size: 0.85rem;
   font-weight: 600;
   margin-bottom: 6px;
   line-height: 1.4;
+  padding-right: 28px;
+  word-wrap: break-word;
 }
 
 .kanban-card-meta {
@@ -1729,3 +1771,102 @@ button {
     grid-template-columns: 1fr;
   }
 }
+
+.chat-suggestions {
+  display: flex;
+  gap: 8px;
+  padding: 8px 16px;
+  overflow-x: auto;
+  white-space: nowrap;
+  scrollbar-width: none;
+  margin-bottom: 4px;
+}
+
+.chat-suggestions::-webkit-scrollbar {
+  display: none;
+}
+
+.suggestion-pill {
+  flex: 1 0 auto;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 100px;
+  padding: 6px 12px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.suggestion-pill:hover {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, 0.15);
+  color: var(--text);
+  transform: translateY(-1px);
+}
+
+.suggestion-pill:active {
+  transform: translateY(0);
+}
+
+/* Frosted Glass Override Styles for Chat Interface */
+.chat-main, .chat-console {
+  background: rgba(255, 255, 255, 0.05) !important;
+  backdrop-filter: blur(25px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(25px) saturate(180%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.4) !important;
+}
+
+.chat-input-bar input {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  backdrop-filter: blur(16px) saturate(120%) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(120%) !important;
+}
+
+.model-select select {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  backdrop-filter: blur(16px) saturate(120%) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(120%) !important;
+  color: #ffffff !important;
+}
+
+.message.user .message-content {
+  background: rgba(234, 179, 8, 0.18) !important;
+  border: 1px solid rgba(234, 179, 8, 0.3) !important;
+  backdrop-filter: blur(16px) saturate(120%) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(120%) !important;
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.1), 0 4px 15px rgba(0, 0, 0, 0.25) !important;
+}
+
+.message.system .message-content {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  backdrop-filter: blur(16px) saturate(120%) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(120%) !important;
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.05), 0 4px 15px rgba(0, 0, 0, 0.15) !important;
+}
+
+.suggestion-pill {
+  background: rgba(255, 255, 255, 0.03) !important;
+  border: 1px solid rgba(255, 255, 255, 0.18) !important;
+  backdrop-filter: blur(20px) saturate(140%) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(140%) !important;
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.1), 0 2px 10px rgba(0, 0, 0, 0.3) !important;
+}
+
+.suggestion-pill:hover {
+  background: rgba(234, 179, 8, 0.12) !important;
+  border-color: rgba(234, 179, 8, 0.35) !important;
+  color: var(--accent-hover) !important;
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.15), 0 4px 15px rgba(234, 179, 8, 0.2) !important;
+  transform: translateY(-2px) !important;
+}
+

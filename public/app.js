@@ -147,20 +147,46 @@ function initNavigation() {
 function initSettings() {
   const modal = document.getElementById('settings-modal');
   
-  document.getElementById('btn-show-settings').addEventListener('click', () => {
+  document.getElementById('btn-show-settings').addEventListener('click', async () => {
     modal.classList.remove('hidden');
+    try {
+      const settings = await apiFetch('/api/settings');
+      document.getElementById('settings-smtp-host').value = settings.smtpHost || '';
+      document.getElementById('settings-smtp-port').value = settings.smtpPort || '587';
+      document.getElementById('settings-smtp-user').value = settings.smtpUser || '';
+      document.getElementById('settings-smtp-pass').value = settings.smtpPass || '';
+    } catch (err) {
+      console.error('Failed to load SMTP settings:', err);
+    }
   });
+  
   document.getElementById('btn-close-settings').addEventListener('click', () => {
     modal.classList.add('hidden');
   });
-  document.getElementById('btn-save-settings').addEventListener('click', () => {
+  
+  document.getElementById('btn-save-settings').addEventListener('click', async () => {
     const inputVal = document.getElementById('settings-token').value.trim();
     if (inputVal) {
       apiSecret = inputVal;
       localStorage.setItem('mindsync_secret', apiSecret);
       logActivity('Settings', 'Bearer token authorization passphrase updated.');
+    }
+    
+    const smtpHost = document.getElementById('settings-smtp-host').value.trim();
+    const smtpPort = document.getElementById('settings-smtp-port').value.trim();
+    const smtpUser = document.getElementById('settings-smtp-user').value.trim();
+    const smtpPass = document.getElementById('settings-smtp-pass').value.trim();
+    
+    try {
+      await apiFetch('/api/settings', {
+        method: 'POST',
+        body: JSON.stringify({ smtpHost, smtpPort, smtpUser, smtpPass })
+      });
+      logActivity('Settings', 'Email SMTP credentials updated successfully.');
       loadAllData();
       modal.classList.add('hidden');
+    } catch (err) {
+      alert('Failed to save settings: ' + err.message);
     }
   });
 }
@@ -409,12 +435,20 @@ function formatNoteContent(content) {
     return `<a href="${cleanUrl}" target="_blank" style="color:var(--accent); text-decoration:underline; font-weight:500;">${cleanUrl}</a>${suffix}`;
   });
   
+  escaped = escaped.replace(/^-\s*\[\s*\]\s*(.*$)/gim, '<li style="margin-left:8px; margin-bottom:8px; color:var(--text-secondary); list-style-type: none; display: flex; align-items: center; gap: 8px;"><span style="color:var(--text-muted); font-size: 1.1rem; line-height: 1;">◽</span> <span>$1</span></li>');
+  escaped = escaped.replace(/^-\s*\[x\]\s*(.*$)/gim, '<li style="margin-left:8px; margin-bottom:8px; color:var(--text-secondary); list-style-type: none; display: flex; align-items: center; gap: 8px;"><span style="color:var(--accent); font-size: 1.1rem; line-height: 1;">☑</span> <span>$1</span></li>');
+
   escaped = escaped.replace(/^### (.*$)/gim, '<h3 style="margin-top:16px; margin-bottom:8px; color:var(--text); font-weight:600;">$1</h3>');
   escaped = escaped.replace(/^## (.*$)/gim, '<h2 style="margin-top:20px; margin-bottom:10px; color:var(--text); font-weight:600;">$1</h2>');
   escaped = escaped.replace(/^# (.*$)/gim, '<h1 style="margin-top:24px; margin-bottom:12px; color:var(--text); font-weight:600;">$1</h1>');
   
   escaped = escaped.replace(/^- (.*$)/gim, '<li style="margin-left:20px; margin-bottom:8px; color:var(--text-secondary); list-style-type: disc;">$1</li>');
   
+  escaped = escaped.replace(/\*\*(.*?)\*\*/g, '<strong style="color:var(--text); font-weight:600;">$1</strong>');
+  escaped = escaped.replace(/\*(.*?)\*/g, '<em style="font-style:italic;">$1</em>');
+
+  escaped = escaped.replace(/^&gt;\s*(.*$)/gim, '<blockquote style="border-left: 2px solid var(--accent); padding: 4px 12px; margin: 12px 0; color: var(--text-secondary); font-style: italic; background: rgba(255,255,255,0.01); border-radius: 0 4px 4px 0;">$1</blockquote>');
+
   escaped = escaped.replace(/\n/g, '<br>');
   
   return escaped;
@@ -533,6 +567,13 @@ function initChatModule() {
     if (e.key === 'Enter') triggerChatSubmit();
   });
 
+  document.querySelectorAll('.suggestion-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      chatInput.value = pill.innerText;
+      triggerChatSubmit();
+    });
+  });
+
   document.getElementById('btn-clear-console').addEventListener('click', () => {
     document.getElementById('console-logs').innerHTML = '<div class="log-entry system">Agent Console logs cleared.</div>';
   });
@@ -552,9 +593,10 @@ async function triggerChatSubmit() {
   const thinkingId = appendChatMessage('system', 'Agent is thinking...');
 
   try {
+    const role = document.getElementById('chat-agent-role').value;
     const result = await apiFetch('/api/chat', {
       method: 'POST',
-      body: JSON.stringify({ message: userMsg })
+      body: JSON.stringify({ message: userMsg, role })
     });
 
     // Remove thinking message
@@ -589,7 +631,10 @@ function appendChatMessage(sender, text) {
   
   msg.className = `message ${sender}`;
   msg.id = msgId;
-  msg.innerHTML = `<div class="message-content">${text}</div>`;
+  
+  // Format markdown nodes dynamically
+  const formattedHtml = formatNoteContent(text);
+  msg.innerHTML = `<div class="message-content">${formattedHtml}</div>`;
   
   container.appendChild(msg);
   container.scrollTop = container.scrollHeight;
@@ -661,13 +706,34 @@ function renderTasksKanban(tasks) {
     card.className = 'kanban-card';
     card.setAttribute('draggable', 'true');
     
+    const priority = task.priority || 'normal';
+    const createdAtDate = task.createdAt ? new Date(task.createdAt) : new Date();
+    const dateStr = isNaN(createdAtDate.getTime()) ? new Date().toLocaleDateString() : createdAtDate.toLocaleDateString();
+    
     card.innerHTML = `
+      <button class="delete-task-btn" title="Delete Task">&times;</button>
       <h4>${task.title}</h4>
       <div class="kanban-card-meta">
-        <span class="priority-badge ${task.priority}">${task.priority.toUpperCase()}</span>
-        <span>📅 ${new Date(task.createdAt).toLocaleDateString()}</span>
+        <span class="priority-badge ${priority}">${priority.toUpperCase()}</span>
+        <span>📅 ${dateStr}</span>
       </div>
     `;
+
+    const deleteBtn = card.querySelector('.delete-task-btn');
+    deleteBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (confirm(`Are you sure you want to delete this task: "${task.title}"?`)) {
+        try {
+          await apiFetch(`/api/tasks/${task.id}`, {
+            method: 'DELETE'
+          });
+          logActivity('Task Board', `Deleted task: "${task.title}"`);
+          await loadAllData();
+        } catch (err) {
+          alert('Failed to delete task: ' + err.message);
+        }
+      }
+    });
 
     card.addEventListener('dragstart', (e) => {
       e.dataTransfer.setData('text/plain', task.id);
