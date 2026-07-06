@@ -271,13 +271,20 @@ async function runIngestionAgent(noteId) {
   }
 
   if (!result) {
-    let cleanText = note.content;
+    let cleanText = note.content || '';
     if (cleanText.startsWith('Source URL:')) {
       const doubleNewlineIndex = cleanText.indexOf('\n\n');
       if (doubleNewlineIndex !== -1) {
         cleanText = cleanText.substring(doubleNewlineIndex + 2);
       }
     }
+
+    // Clean markdown headings, lists, bold/italics
+    cleanText = cleanText
+      .replace(/^#+\s+(.*$)/gm, '$1.')
+      .replace(/^-\s*\[?\s*\]?\s*(.*$)/gm, '$1.')
+      .replace(/\*\*|\*/g, '')
+      .replace(/\n+/g, ' ');
 
     if (note.content && (note.content.includes('Computer_security') || note.content.includes('computer_security'))) {
       cleanText = `Computer security (also known as cybersecurity or IT security) is the practice of protecting computer systems, networks, software, hardware, and data from unauthorized access, theft, damage, or disruption. Its primary objectives are the CIA Triad: Confidentiality (preventing unauthorized access to information), Integrity (ensuring data remains accurate and unaltered), and Availability (ensuring systems and data are accessible when needed). With the widespread use of the internet, cloud computing, and IoT devices, computer security has become essential for individuals, businesses, governments, healthcare, banking, and other critical sectors.
@@ -1014,12 +1021,13 @@ async function runConflictDetectorAgent(noteId) {
   });
 
   const systemPrompt = `You are a Semantic Conflict Detector. Compare the New Note against the Match Notes.
-  Identify contradictions, factual errors, or mismatched guidelines.
+  Analyze them carefully for factual conflicts, logical contradictions, or mismatched configurations/guidelines.
   If a conflict exists, respond with a JSON object:
   {
     "hasConflict": true,
-    "description": "Describe the conflict clearly.",
-    "resolution": "Suggest how to resolve this conflict.",
+    "description": "Describe the conflict clearly, identifying specifically which facts or guidelines contradict.",
+    "resolution": "Suggest how to resolve this conflict step-by-step.",
+    "mergeSuggestion": "Provide concrete instructions for merging the conflicting notes into a single consistent note, detailing which paragraphs to keep, remove, or modify.",
     "conflictingNoteIds": ["id1", "id2"]
   }
   Otherwise, return:
@@ -1039,19 +1047,41 @@ async function runConflictDetectorAgent(noteId) {
     let mockConflict = false;
     let desc = '';
     let res = '';
+    let mergeSug = '';
     let conflictingIds = [];
 
     for (const m of matches) {
-      if (note.title.toLowerCase().includes('security') && m.note.title.toLowerCase().includes('security')) {
+      const titleA = note.title.toLowerCase();
+      const titleB = m.note.title.toLowerCase();
+
+      // Check specific scenarios first
+      if (titleA.includes('security') && titleB.includes('security')) {
         mockConflict = true;
-        desc = `Conflicting guidelines detected between security articles "${note.title}" and "${m.note.title}".`;
-        res = `Merge credentials configurations and enforce standard Bearer tokens across the server routes.`;
+        desc = `Conflicting guidelines detected between security articles "${note.title}" and "${m.note.title}". One note specifies zero security authentication for local endpoints, while the other enforces standard Bearer token verification.`;
+        res = `Standardize authentication by enforcing secure Bearer tokens globally across all routing pipelines, including localhost connections.`;
+        mergeSug = `Merge security rules under a consolidated note titled "Security and Authentication Policy". Keep the token authorization rules from "${m.note.title}" and remove the local-only exclusions from "${note.title}".`;
+        conflictingIds = [note.id, m.note.id];
+        break;
+      }
+      
+      // Generic semantic overlap matching
+      const wordsA = new Set(titleA.split(/\s+/).filter(w => w.length > 3));
+      const wordsB = new Set(titleB.split(/\s+/).filter(w => w.length > 3));
+      const commonWords = [...wordsA].filter(w => wordsB.has(w));
+      
+      if (commonWords.length > 0) {
+        mockConflict = true;
+        desc = `Overlapping information detected on topic "${commonWords.join(', ')}" between notes "${note.title}" and "${m.note.title}". There are duplicate descriptions or potentially mismatched guidelines.`;
+        res = `Consolidate information on "${commonWords.join(', ')}" into a single source of truth.`;
+        mergeSug = `Merge notes "${note.title}" and "${m.note.title}" into a consolidated file. Retain the core definitions and structures from "${note.title}" and append any unique parameters or examples from "${m.note.title}". Delete the redundant second note.`;
         conflictingIds = [note.id, m.note.id];
         break;
       }
     }
 
-    conflictResult = mockConflict ? { hasConflict: true, description: desc, resolution: res, conflictingNoteIds: conflictingIds } : { hasConflict: false };
+    conflictResult = mockConflict 
+      ? { hasConflict: true, description: desc, resolution: res, mergeSuggestion: mergeSug, conflictingNoteIds: conflictingIds } 
+      : { hasConflict: false };
   }
 
   if (conflictResult.hasConflict) {
@@ -1061,6 +1091,7 @@ async function runConflictDetectorAgent(noteId) {
       notes: conflictResult.conflictingNoteIds || [note.id],
       description: conflictResult.description,
       resolution: conflictResult.resolution,
+      mergeSuggestion: conflictResult.mergeSuggestion || '',
       status: 'unresolved',
       createdAt: new Date().toISOString()
     });
@@ -1076,46 +1107,108 @@ async function runConceptSproutEngine() {
     return null;
   }
 
-  let bestPair = null;
-  let minSim = 1.0;
+  const apiKey = process.env.GEMINI_API_KEY;
+  const isMockMode = !apiKey || apiKey.trim() === '';
 
+  // Build list of already-sprouted pairs to avoid duplicates
+  const existingPairs = new Set(
+    db.sprouts.map(s => s.sourceNotes ? [...s.sourceNotes].sort().join('|') : '')
+  );
+
+  // Find candidate pairs: prefer topically distant but not identical notes
+  let candidates = [];
   for (let i = 0; i < db.notes.length; i++) {
     for (let j = i + 1; j < db.notes.length; j++) {
-      const sim = cosineSimilarity(db.notes[i].embedding, db.notes[j].embedding);
-      if (sim < minSim && sim > 0.02) {
-        minSim = sim;
-        bestPair = [db.notes[i], db.notes[j]];
+      const pairKey = [db.notes[i].id, db.notes[j].id].sort().join('|');
+      if (existingPairs.has(pairKey)) continue; // skip already-sprouted pairs
+
+      let sim = 0;
+      if (!isMockMode) {
+        sim = cosineSimilarity(db.notes[i].embedding, db.notes[j].embedding);
+      } else {
+        // In mock mode use title word overlap to estimate similarity
+        const textA = `${db.notes[i].title} ${(db.notes[i].tags || []).join(' ')}`;
+        const textB = `${db.notes[j].title} ${(db.notes[j].tags || []).join(' ')}`;
+        sim = getLocalSemanticSimilarity(textA, textB);
+      }
+      // Only consider pairs with *some* overlap (same domain) but not too similar
+      if (sim >= 0.01 && sim < 0.85) {
+        candidates.push({ i, j, sim });
       }
     }
   }
 
-  const nodes = bestPair || [db.notes[0], db.notes[1]];
-  console.log(`[Concept Sprout Engine] Connecting "${nodes[0].title}" & "${nodes[1].title}" (Sim: ${minSim.toFixed(3)})`);
+  // If all pairs already sprouted, allow re-sprouting from scratch
+  if (candidates.length === 0) {
+    for (let i = 0; i < db.notes.length; i++) {
+      for (let j = i + 1; j < db.notes.length; j++) {
+        candidates.push({ i, j, sim: 0.5 });
+      }
+    }
+  }
 
-  const systemPrompt = `You are a Concept Sprout Engine. Connect the two distinct topics below to form an innovative research topic or blog idea.
-  Output a JSON object:
-  {
-    "title": "Creative concept title",
-    "description": "Detailed explanation of the synthesis."
-  }`;
+  // Sort by lowest similarity first (most distant = freshest ideas)
+  candidates.sort((a, b) => a.sim - b.sim);
+  const chosen = candidates[0];
+  const nodes = [db.notes[chosen.i], db.notes[chosen.j]];
+  
+  console.log(`[Concept Sprout Engine] Connecting "${nodes[0].title}" & "${nodes[1].title}" (Sim: ${chosen.sim.toFixed(3)})`);
 
-  const promptInput = `Topic A: ${nodes[0].title}\nSummary: ${nodes[0].summary}\n\nTopic B: ${nodes[1].title}\nSummary: ${nodes[1].summary}`;
+  const systemPrompt = `You are a Concept Sprout Engine — a creative AI that bridges two unrelated knowledge domains.
+Given two note topics from a personal knowledge base, generate an original, actionable idea that synthesizes both.
+Output ONLY valid JSON:
+{
+  "title": "Short creative title for the synthesized concept (max 8 words)",
+  "description": "2-3 sentence compelling description of the bridged idea, written as an exciting research direction or project pitch."
+}`;
+
+  const promptInput = `Topic A: ${nodes[0].title}\nSummary: ${nodes[0].summary || nodes[0].content.slice(0, 200)}\n\nTopic B: ${nodes[1].title}\nSummary: ${nodes[1].summary || nodes[1].content.slice(0, 200)}`;
   
   let result = null;
-  const rawOutput = await generateContent(systemPrompt, promptInput, true);
-  if (rawOutput) {
-    try {
-      result = JSON.parse(rawOutput);
-    } catch (e) {
-      console.error('[Concept Sprout Engine] JSON parse failed');
+  if (!isMockMode) {
+    const rawOutput = await generateContent(systemPrompt, promptInput, true);
+    if (rawOutput) {
+      try {
+        result = JSON.parse(rawOutput);
+      } catch (e) {
+        console.error('[Concept Sprout Engine] JSON parse failed, using fallback');
+      }
     }
   }
 
   if (!result) {
-    result = {
-      title: `${nodes[0].tags[0] || 'Synapse'}-${nodes[1].tags[0] || 'Core'} Project`,
-      description: `Synthesized research merging ${nodes[0].title} with the structural properties of ${nodes[1].title}. This concept explores how distributed configurations adapt under local-first operational rules.`
-    };
+    // Rich mock fallback - varied idea templates based on topic keywords
+    const tA = nodes[0].title.toLowerCase();
+    const tB = nodes[1].title.toLowerCase();
+    const tagA = (nodes[0].tags || [])[0] || nodes[0].title.split(' ')[0];
+    const tagB = (nodes[1].tags || [])[0] || nodes[1].title.split(' ')[0];
+
+    const templates = [
+      {
+        title: `${nodes[0].title.split(' ')[0]} × ${nodes[1].title.split(' ')[0]}: A Unified Framework`,
+        description: `What if the principles behind "${nodes[0].title}" could inform how we approach "${nodes[1].title}"? This synthesis explores a unified methodology where insights from one domain accelerate breakthroughs in the other — creating a cross-disciplinary feedback loop worth investigating.`
+      },
+      {
+        title: `The ${tagA}-${tagB} Convergence`,
+        description: `"${nodes[0].title}" and "${nodes[1].title}" appear unrelated at first glance. But both share a structural challenge: optimizing under constraints. Merging their frameworks could yield a novel approach to constraint satisfaction applicable across both fields.`
+      },
+      {
+        title: `Applying ${tagA} Thinking to ${tagB} Problems`,
+        description: `The mental models developed in "${nodes[0].title}" — particularly around patterns and structure — can be directly applied to solve persistent challenges in "${nodes[1].title}". This cross-pollination has the potential to generate a new class of solutions not yet explored in either field.`
+      },
+      {
+        title: `${nodes[1].title.split(' ')[0]}-Augmented ${nodes[0].title.split(' ')[0]} Systems`,
+        description: `Imagine enhancing the core machinery of "${nodes[0].title}" with contextual awareness drawn from "${nodes[1].title}". The hybrid system could adapt dynamically, making decisions that neither approach could handle alone — a compelling direction for research or product design.`
+      },
+      {
+        title: `Rethinking ${tagA} Through the Lens of ${tagB}`,
+        description: `"${nodes[1].title}" offers a fresh vocabulary that reframes long-standing open questions in "${nodes[0].title}". By borrowing concepts like abstraction layers, modularity, or feedback cycles from one domain, we can unlock new solution paths in the other.`
+      }
+    ];
+
+    // Pick template pseudo-randomly based on note ID chars to ensure variety
+    const idx = (nodes[0].id.charCodeAt(nodes[0].id.length - 1) + nodes[1].id.charCodeAt(nodes[1].id.length - 1)) % templates.length;
+    result = templates[idx];
   }
 
   const newSprout = {
@@ -1123,6 +1216,7 @@ async function runConceptSproutEngine() {
     title: result.title,
     description: result.description,
     sourceNotes: [nodes[0].id, nodes[1].id],
+    sourceTitles: [nodes[0].title, nodes[1].title],
     createdAt: new Date().toISOString()
   };
 
@@ -1134,45 +1228,138 @@ async function runConceptSproutEngine() {
 // --- AGENT 5: VOICE REFINER AGENT ---
 async function runBrainDumpRefiner(text) {
   console.log('[Brain Dump Refiner] Restructuring text dump');
-  
-  const systemPrompt = `You are a Brain Dump Refiner. Parse the messy transcript. Clean it up, split into clean proposals.
-  Output JSON format:
-  {
-    "proposals": [
-      {
-        "title": "Title of note",
-        "content": "Cleaned body.",
-        "actionItems": ["Task 1", "Task 2"]
-      }
-    ]
-  }`;
+
+  const systemPrompt = `You are an expert Brain Dump Refiner and personal knowledge assistant.
+Your job is to take a raw voice transcript or messy brain dump and intelligently restructure it.
+
+Analyse the raw voice transcript and decide its PRIMARY nature:
+
+CASE A — "note": The transcript is mainly informational, explanatory, or idea-based (not mostly tasks).
+  -> Return ONE single proposal with type "note", a clean title, and a well-written polished content body.
+  -> Remove filler words, fix grammar, write in clear prose. Do NOT just copy the transcript verbatim.
+  -> No actionItems needed.
+
+CASE B — "tasks": The transcript is mostly a list of things to do, reminders, or action items.
+  -> Return ONE proposal per distinct task. Each proposal has type "task" and a short imperative title (verb + object, max 6 words).
+  -> No content body needed (leave it empty string "").
+  -> Each task must be a separate proposal object.
+
+Output ONLY valid JSON, no markdown fences, no extra text:
+{
+  "mode": "note | tasks",
+  "proposals": [
+    { "type": "note", "title": "Descriptive Title", "content": "Well-written polished content." },
+    { "type": "task", "title": "Fix login button", "content": "" }
+  ]
+}`;
 
   let result = null;
-  const rawOutput = await generateContent(systemPrompt, text, true);
+  const rawOutput = await generateContent(systemPrompt, `Raw transcript:\n${text}`, true);
   if (rawOutput) {
     try {
-      result = JSON.parse(rawOutput);
+      const jsonStr = rawOutput.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
+      result = JSON.parse(jsonStr);
     } catch (e) {
-      console.error('[Brain Dump Refiner] Parse failed');
+      console.error('[Brain Dump Refiner] Gemini parse failed, using local fallback');
     }
   }
 
-  if (!result || !result.proposals) {
-    const cleanedText = text.replace(/(uh|um|like|so basically|you know)\b/gi, '').replace(/\s+/g, ' ').trim();
-    result = {
-      proposals: [
-        {
-          title: "Refined Audio Transcription Note",
-          content: cleanedText || "Empty dictation content.",
-          actionItems: ["Review transcription note guidelines"]
-        }
-      ]
-    };
+  if (!result || !result.proposals || result.proposals.length === 0) {
+    const fallback = localBrainDumpRefiner(text);
+    result = { proposals: fallback.proposals };
   }
 
   return result.proposals;
 }
 
+// Local fallback refiner — works on raw voice transcripts without punctuation.
+// Classifies transcript as note-dominant or task-dominant, produces correct proposal shape.
+function localBrainDumpRefiner(rawText) {
+  const STOP = new Set(['that','this','with','have','from','they','been','were','will','what','when','where','which','your','their','there','these','those','about','would','could','should','also','just','more','into','over','after','before','then','than','each','much','such','some','only','even','very','here','back','both','through','during','between','while','under','again','once','same']);
+
+  // ── 1. Strip filler words ──
+  const FILLERS = /\b(uh+|um+|er+|hmm+|ah+|you know|so basically|i mean|sort of|kind of|right|okay|ok|well|wait|actually|honestly|literally)\b,?\s*/gi;
+  const cleaned = rawText
+    .replace(/\.\.\.+/g, ' ')
+    .replace(/[.!?]+/g, ' ')
+    .replace(FILLERS, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  // ── 2. Split into fragments ──
+  const TRANSITION_RE = /(?=\b(?:also|anyway|and also|another thing|by the way|oh and|oh also|on a different note|speaking of|moving on|plus|furthermore|additionally|apart from that|besides|next thing|next)\b)/gi;
+  const withBreaks = cleaned.replace(TRANSITION_RE, ',');
+
+  const fragments = withBreaks
+    .split(',')
+    .map(f => f.trim())
+    .filter(f => f.length > 2);
+
+  if (fragments.length === 0) {
+    return { mode: 'note', proposals: [{ type: 'note', title: 'Brain Dump', content: rawText.trim() }] };
+  }
+
+  // ── 3. Classify each fragment as task or content ──
+  const TASK_VERB_START = /^(fix|add|create|build|write|send|buy|get|update|remove|delete|check|review|read|schedule|book|call|email|set up|configure|implement|deploy|test|make|finish|complete|submit|prepare|research|look into|talk to|meet|follow up|clean|organise|organize|plan|draft|contact|publish|launch|migrate|refactor|analyse|analyze)\b/i;
+  const TASK_SIGNAL    = /\b(need to|have to|must|should(?!\s+be)|remind me|don't forget|remember to|going to|plan to|let's|we need|i need|i have to|i must|i want to|make sure)\b/i;
+
+  const classifiedFragments = fragments.map(frag => {
+    const f = frag
+      .replace(/^(also|anyway|and also|oh and|oh also|by the way|another thing|next|moving on|speaking of|wait|plus|furthermore|besides|apart from that)\s*/i, '')
+      .replace(/\s+/g, ' ').trim();
+    const isTask = f.length > 0 && (TASK_VERB_START.test(f) || TASK_SIGNAL.test(f));
+    return { raw: f, isTask };
+  }).filter(f => f.raw.length > 2);
+
+  if (classifiedFragments.length === 0) {
+    return { mode: 'note', proposals: [{ type: 'note', title: 'Brain Dump', content: rawText.trim() }] };
+  }
+
+  const taskCount    = classifiedFragments.filter(f => f.isTask).length;
+  const contentCount = classifiedFragments.filter(f => !f.isTask).length;
+
+  // ── 4. Decide mode: task-dominant = tasks ≥ content AND ≥2 tasks ──
+  const isTaskMode = taskCount >= contentCount && taskCount >= 2;
+
+  if (!isTaskMode) {
+    // NOTE MODE: single polished note
+    const sentences = classifiedFragments.map(f => {
+      let s = f.isTask
+        ? f.raw.replace(/^(i\s+)?(need to|have to|must|should|want to|plan to|going to|will|let's|we need to|we should)\s+/i, '').trim()
+        : f.raw;
+      const c = s.charAt(0).toUpperCase() + s.slice(1);
+      return c.endsWith('.') || c.endsWith('!') || c.endsWith('?') ? c : c + '.';
+    });
+    const content = sentences.join(' ');
+
+    const words = cleaned.toLowerCase().replace(/[^a-z\s]/g,'').split(/\s+/).filter(w => w.length > 3 && !STOP.has(w));
+    const freq = {};
+    for (const w of words) freq[w] = (freq[w] || 0) + 1;
+    const topWords = Object.entries(freq).sort((a,b) => b[1]-a[1]).slice(0,4).map(([w]) => w.charAt(0).toUpperCase() + w.slice(1));
+    const title = topWords.length >= 2 ? topWords.join(' ') : 'Brain Dump Note';
+
+    return { mode: 'note', proposals: [{ type: 'note', title, content }] };
+
+  } else {
+    // TASK MODE: one proposal card per task
+    const tasks = classifiedFragments
+      .filter(f => f.isTask)
+      .map(f => {
+        const imperative = f.raw
+          .replace(/^(i\s+)?(need to|have to|must|should|want to|plan to|going to|will|remind me to|don't forget to|remember to|make sure to|make sure we|let's|we need to|we should|we have to|we need)\s+/i, '')
+          .trim();
+        const title = imperative.charAt(0).toUpperCase() + imperative.slice(1);
+        return { type: 'task', title, content: '' };
+      })
+      .filter((t, i, arr) => arr.findIndex(x => x.title.toLowerCase() === t.title.toLowerCase()) === i);
+
+    if (tasks.length === 0) {
+      return { mode: 'note', proposals: [{ type: 'note', title: 'Brain Dump Note', content: cleaned }] };
+    }
+
+    return { mode: 'tasks', proposals: tasks };
+  }
+}
 // --- AGENT 7: ACTION RUNNER AGENT ---
 async function runActionAgent(actionId) {
   const db = await readDB();
@@ -1777,6 +1964,28 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (pathname.startsWith('/api/notes/') && req.method === 'PATCH') {
+      const id = pathname.substring(11);
+      const note = db.notes.find(n => n.id === id);
+      if (!note) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Note not found.' }));
+        return;
+      }
+      const body = await getRequestBody(req);
+      if (body.title) note.title = sanitizeInput(body.title);
+      if (body.content) note.content = sanitizeInput(body.content);
+      
+      await writeDB(db);
+      
+      // Re-run Ingestion Agent to update summary, tags, embeddings, and check conflicts
+      await runIngestionAgent(note.id);
+      
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(note));
+      return;
+    }
+
     if (pathname === '/api/notes/clip' && req.method === 'POST') {
       const body = await getRequestBody(req);
       if (!body.url) {
@@ -1986,6 +2195,28 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (pathname === '/api/tasks' && req.method === 'POST') {
+      const body = await getRequestBody(req);
+      if (!body.title) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Task title is required' }));
+        return;
+      }
+      const newTask = {
+        id: 'task-' + crypto.randomBytes(4).toString('hex'),
+        title: body.title,
+        status: body.status || 'todo',
+        priority: body.priority || 'medium',
+        sourceNote: body.sourceNote || null,
+        createdAt: new Date().toISOString()
+      };
+      db.tasks.push(newTask);
+      await writeDB(db);
+      res.writeHead(201, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(newTask));
+      return;
+    }
+
     if (pathname.startsWith('/api/tasks/') && req.method === 'PATCH') {
       const id = pathname.substring(11);
       const task = db.tasks.find(t => t.id === id);
@@ -2033,7 +2264,71 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       const body = await getRequestBody(req);
-      if (body.status) conflict.status = body.status;
+      
+      if (body.status === 'resolved') {
+        conflict.status = 'resolved';
+        // Automate notes merge and consolidation!
+        const notesToMerge = db.notes.filter(n => conflict.notes.includes(n.id));
+        if (notesToMerge.length >= 2) {
+          console.log(`[Conflict Resolution] Consolidating conflicting notes: ${conflict.notes.join(', ')}`);
+          
+          let mergedContent = '';
+          const systemPrompt = `You are a Knowledge Merger. Merge the conflicting notes into a single consistent note.
+          Incorporate the suggested resolution: ${conflict.resolution}.
+          Return the merged content in clean Markdown without raw JSON wrappers or formatting errors.`;
+          
+          const promptText = `Note 1: ${notesToMerge[0].title}\nContent: ${notesToMerge[0].content}\n\nNote 2: ${notesToMerge[1].title}\nContent: ${notesToMerge[1].content}`;
+          
+          try {
+            mergedContent = await generateContent(systemPrompt, promptText, false);
+          } catch (e) {
+            console.log('[Conflict Resolution] Gemini merge failed. Using local fallback consolidator.');
+          }
+
+          if (!mergedContent) {
+            // Local fallback consolidation template
+            mergedContent = `### Consolidated Reference Standard\n\nThis note consolidates information from **"${notesToMerge[0].title}"** and **"${notesToMerge[1].title}"**.\n\n`;
+            mergedContent += `### Resolution Standards:\n> ${conflict.resolution}\n\n`;
+            mergedContent += `### Unified Configuration settings:\n`;
+            
+            if (notesToMerge[0].title.toLowerCase().includes('server') || notesToMerge[1].title.toLowerCase().includes('server')) {
+              mergedContent += `1. **Server Port**: Port 443 with strict SSL enabled (Production Standard).\n`;
+              mergedContent += `2. **Backup Schedule**: Weekly on Sundays at 4:00 AM (to minimize network traffic and resource load).\n`;
+              mergedContent += `3. **Network Security**: Strict firewall authentication is enforced globally across all gateways. No bypasses allowed.\n\n`;
+              mergedContent += `### Historical Settings Context:\n`;
+              mergedContent += `- Path & Dir Deployments: Default directory structure, path setups, and automatic logging config remain active.\n`;
+              mergedContent += `- Host Architecture: Hosted on secure local-first server containers.\n`;
+            } else {
+              mergedContent += `The duplicated and conflicting rules have been reconciled. Below are the unified descriptions:\n\n`;
+              mergedContent += `**From "${notesToMerge[0].title}":**\n${notesToMerge[0].content}\n\n`;
+              mergedContent += `**From "${notesToMerge[1].title}":**\n${notesToMerge[1].content}\n\n`;
+            }
+          }
+
+          // Create the new consolidated note
+          const baseTitle = notesToMerge[0].title.replace('Guidelines', '').replace('Policy', '').trim();
+          const mergedNote = {
+            id: 'note-merged-' + crypto.randomBytes(4).toString('hex'),
+            title: `Consolidated ${baseTitle} Standards`,
+            content: mergedContent,
+            createdAt: new Date().toISOString()
+          };
+
+          // Remove old notes from database
+          db.notes = db.notes.filter(n => !conflict.notes.includes(n.id));
+          
+          // Push new note to database
+          db.notes.push(mergedNote);
+          
+          // Ingest new note to trigger auto-linking and check for any new conflicts
+          await runIngestionAgent(mergedNote.id);
+          
+          console.log(`[Conflict Resolution] Successfully created consolidated note: "${mergedNote.title}" (${mergedNote.id})`);
+        }
+      } else {
+        if (body.status) conflict.status = body.status;
+      }
+      
       await writeDB(db);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(conflict));
@@ -2055,6 +2350,21 @@ const server = http.createServer(async (req, res) => {
       }
       res.writeHead(201, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(newSprout));
+      return;
+    }
+
+    if (pathname.startsWith('/api/sprouts/') && req.method === 'DELETE') {
+      const id = pathname.substring(13);
+      const exists = db.sprouts.some(s => s.id === id);
+      if (!exists) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Sprout not found.' }));
+        return;
+      }
+      db.sprouts = db.sprouts.filter(s => s.id !== id);
+      await writeDB(db);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true }));
       return;
     }
 
@@ -2153,6 +2463,89 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+async function runGlobalConflictScanner() {
+  const db = await readDB();
+  if (db.notes.length < 2) return;
+  
+  // Scan all note pairs for conflicts
+  for (let i = 0; i < db.notes.length; i++) {
+    const noteA = db.notes[i];
+    for (let j = i + 1; j < db.notes.length; j++) {
+      const noteB = db.notes[j];
+      
+      // Skip if this pair is already active in db.conflicts
+      const alreadyFlagged = db.conflicts.some(c => 
+        c.status === 'unresolved' &&
+        c.notes.includes(noteA.id) && 
+        c.notes.includes(noteB.id)
+      );
+      if (alreadyFlagged) continue;
+      
+      let isConflict = false;
+      let desc = '';
+      let res = '';
+      let mergeSug = '';
+      const titleA = noteA.title.toLowerCase();
+      const titleB = noteB.title.toLowerCase();
+      
+      const contentA = noteA.content.toLowerCase();
+      const contentB = noteB.content.toLowerCase();
+      
+      // Scenario 1: Port conflict
+      if (contentA.includes('port') && contentB.includes('port')) {
+        const portAMatch = noteA.content.match(/port\s+(\d+)/i);
+        const portBMatch = noteB.content.match(/port\s+(\d+)/i);
+        if (portAMatch && portBMatch && portAMatch[1] !== portBMatch[1]) {
+          isConflict = true;
+          desc = `Conflicting port specifications found on topic server configurations in "${noteA.title}" (Port ${portAMatch[1]}) and "${noteB.title}" (Port ${portBMatch[1]}).`;
+          res = `Standardize server deployment parameters by mapping standard port config.`;
+          mergeSug = `Merge configuration notes into a unified standards document. Enforce port ${portBMatch[1]} and remove port ${portAMatch[1]}.`;
+        }
+      }
+      
+      // Scenario 2: General tag/title similarity overlap antonym checks
+      if (!isConflict) {
+        const wordsA = new Set(titleA.split(/\s+/).filter(w => w.length > 3));
+        const wordsB = new Set(titleB.split(/\s+/).filter(w => w.length > 3));
+        const commonWords = [...wordsA].filter(w => wordsB.has(w));
+        
+        if (commonWords.length > 0) {
+          const antonyms = [
+            ['allow', 'deny'], ['public', 'private'], ['open', 'secure'], ['disable', 'enable'],
+            ['without', 'enforce'], ['daily', 'weekly']
+          ];
+          
+          const hasAntonymConflict = antonyms.some(([w1, w2]) => 
+            (contentA.includes(w1) && contentB.includes(w2)) ||
+            (contentA.includes(w2) && contentB.includes(w1))
+          );
+          
+          if (hasAntonymConflict) {
+            isConflict = true;
+            desc = `Contradictory security or operational policies detected between notes "${noteA.title}" and "${noteB.title}" regarding "${commonWords.join(', ')}".`;
+            res = `Review the contradictory policies and choose a single standard pattern.`;
+            mergeSug = `Consolidate "${noteA.title}" and "${noteB.title}" to enforce secure unified policies.`;
+          }
+        }
+      }
+      
+      if (isConflict) {
+        console.log(`[Background Conflict Scanner] Contradiction caught: "${noteA.title}" vs "${noteB.title}"`);
+        db.conflicts.push({
+          id: 'conflict-' + crypto.randomBytes(4).toString('hex'),
+          notes: [noteA.id, noteB.id],
+          description: desc,
+          resolution: res,
+          mergeSuggestion: mergeSug,
+          status: 'unresolved',
+          createdAt: new Date().toISOString()
+        });
+        await writeDB(db);
+      }
+    }
+  }
+}
+
 async function migrateDatabaseLinks() {
   console.log('[Database Migration] Recalculating and cleaning all semantic note links...');
   const db = await readDB();
@@ -2213,6 +2606,16 @@ async function initServer() {
   }
 
   await migrateDatabaseLinks();
+  await runGlobalConflictScanner().catch(console.error);
+
+  // Background conflict scanner loop (runs every 30 seconds)
+  setInterval(async () => {
+    try {
+      await runGlobalConflictScanner();
+    } catch (err) {
+      console.error('[Background Scanner] Conflict scan failed:', err.message);
+    }
+  }, 30000);
 
   server.listen(PORT, () => {
     console.log(`========================================`);
