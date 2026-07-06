@@ -41,9 +41,10 @@ async function readDB() {
     if (!db.conflicts) db.conflicts = [];
     if (!db.sprouts) db.sprouts = [];
     if (!db.actions) db.actions = [];
+    if (!db.settings) db.settings = { smtpHost: '', smtpPort: '587', smtpUser: '', smtpPass: '' };
     return db;
   } catch (err) {
-    return { notes: [], tasks: [], conflicts: [], sprouts: [], actions: [] };
+    return { notes: [], tasks: [], conflicts: [], sprouts: [], actions: [], settings: { smtpHost: '', smtpPort: '587', smtpUser: '', smtpPass: '' } };
   }
 }
 
@@ -1215,7 +1216,7 @@ async function runActionAgent(actionId) {
       const digestContent = `### Daily Briefing Summary
 
 **Open Tasks (${openTasks.length}):**
-${openTasks.map(t => `- [ ] ${t.title} (Priority: ${t.priority})`).join('\n') || 'No open tasks today!'}
+${openTasks.map(t => `- [ ] ${t.title} (Priority: ${t.priority || 'normal'})`).join('\n') || 'No open tasks today!'}
 
 **Unresolved Conflicts (${openConflicts.length}):**
 ${openConflicts.map(c => `- 🔴 ${c.description}`).join('\n') || 'No semantic contradictions found.'}
@@ -1251,71 +1252,364 @@ ${revisitSection}
   return action;
 }
 
-// --- AGENT 6: CHAT AGENT (MOCK PROCESSOR) ---
-function mockChatProcessor(userMsg, db) {
-  const msg = userMsg.toLowerCase();
+const nodemailer = require('nodemailer');
+
+async function sendRealEmail(smtpConfig, toEmail, subject, textContent) {
+  let transporter;
+  let testAccount = null;
+
+  if (!smtpConfig || !smtpConfig.smtpHost || !smtpConfig.smtpUser || !smtpConfig.smtpPass) {
+    console.log('[Email Agent] SMTP config missing, creating Ethereal sandbox test account...');
+    testAccount = await nodemailer.createTestAccount();
+    transporter = nodemailer.createTransport({
+      host: 'smtp.ethereal.email',
+      port: 587,
+      secure: false,
+      auth: {
+        user: testAccount.user,
+        pass: testAccount.pass
+      }
+    });
+  } else {
+    transporter = nodemailer.createTransport({
+      host: smtpConfig.smtpHost,
+      port: parseInt(smtpConfig.smtpPort || '587', 10),
+      secure: smtpConfig.smtpPort === '465',
+      auth: {
+        user: smtpConfig.smtpUser,
+        pass: smtpConfig.smtpPass
+      }
+    });
+  }
+
+  const mailOptions = {
+    from: (smtpConfig && smtpConfig.smtpUser) ? `"MindSync AI" <${smtpConfig.smtpUser}>` : '"MindSync AI (Sandbox)" <no-reply@ethereal.email>',
+    to: toEmail,
+    subject: subject,
+    text: textContent
+  };
+
+  const info = await transporter.sendMail(mailOptions);
   
-  if (msg.includes('search') || msg.includes('find') || msg.includes('similar')) {
-    const query = userMsg.replace(/(search|find|similar|notes|about|for)\b/gi, '').trim();
-    const results = db.notes.filter(n => n.title.toLowerCase().includes(query.toLowerCase()) || n.content.toLowerCase().includes(query.toLowerCase()));
+  if (testAccount) {
+    const previewUrl = nodemailer.getTestMessageUrl(info);
+    console.log(`[Email Agent] Email sent to Ethereal sandbox! Preview URL: ${previewUrl}`);
+    return previewUrl;
+  }
+  return null;
+}
+
+// --- AGENT 6: CHAT AGENT (MOCK PROCESSOR) ---
+async function mockChatProcessor(userMsg, db, role = 'concierge') {
+  const result = await _mockChatProcessor(userMsg, db);
+  
+  if (role === 'critic') {
+    if (result.response.includes('Hi! Here\'s what you can ask me:')) {
+      result.response = `### Critical Analyst Mode 🔍\nI am ready to perform a critical analysis on your Second Brain. Ask me to find note conflicts, review tasks, or critique assumptions.\n\n*Suggestions*:\n- **"List conflicts"** — Review contradictory note statements\n- **"Show my open tasks"** — Inspect task assumptions and deadlines\n- **"Find notes about [topic]"** — Run a critical keyword audit`;
+    } else {
+      result.response = `### Critical Analysis 🔍\n${result.response}\n\n> ⚠️ *Critical Gap*: Ensure you review any conflicts or missing dates for this action. Always check if this contradicts existing security protocols or server patterns.`;
+    }
+  } else if (role === 'creative') {
+    if (result.response.includes('Hi! Here\'s what you can ask me:')) {
+      result.response = `### Creative Synthesizer Mode 💡\nLet's brainstorm! I am ready to make wild concept connections, analogies, and generate sprout ideas from your knowledge base.\n\n*Suggestions*:\n- **"Show my ideas"** — List generated sprout thoughts\n- **"Find notes about [topic]"** — Suggest creative cross-disciplinary links\n- **"Create a note"** — Feed my creative synthesis buffer`;
+    } else {
+      result.response = `### Creative Synthesis 💡\n${result.response}\n\n> 💡 *Brainstorm Idea*: What if you connected this with your concepts around local-first zero-dependency setups? Check your concept sprouts for cross-pollination opportunities!`;
+    }
+  }
+  
+  return result;
+}
+
+async function _mockChatProcessor(userMsg, db) {
+  const msg = userMsg.toLowerCase();
+
+  // 1. Task Creation / Extraction via conversational phrases
+  let taskTitle = '';
+
+  // Pattern A: "add [text] to do" or "add [text] to tasks" or "add [text] to todo list"
+  const addToDoRegex = /^add\s+(.+?)\s+to\s+(?:to\s+)?(?:do|tasks|todo|todo\s+list|task\s+list|my\s+todo|my\s+tasks)$/i;
+  const addToDoMatch = userMsg.match(addToDoRegex);
+  if (addToDoMatch) {
+    taskTitle = addToDoMatch[1].trim();
+  }
+
+  // Pattern B: Starts with key action verbs indicating a task
+  if (!taskTitle) {
+    const actionVerbs = [
+      'submit', 'complete', 'finish', 'do', 'prepare', 'write', 'read', 'review',
+      'study', 'schedule', 'remind', 'fix', 'todo', 'task', 'add task', 'add todo',
+      'need to', 'have to', 'must'
+    ];
+    const lowerMsg = msg.trim();
+    const matchedVerb = actionVerbs.find(verb => 
+      lowerMsg.startsWith(verb + ' ') || 
+      lowerMsg.startsWith('i ' + verb + ' ') ||
+      lowerMsg.startsWith("i'm going to ") ||
+      lowerMsg.startsWith("im going to ")
+    );
+
+    if (matchedVerb) {
+      let cleanText = userMsg.trim();
+      cleanText = cleanText.replace(/^(i\s+)?(?:need\s+to|have\s+to|must|want\s+to|should)\s+/i, '');
+      cleanText = cleanText.replace(/^(?:remind\s+me\s+to|remind\s+me)\s+/i, '');
+      cleanText = cleanText.replace(/^(?:add\s+task|add\s+todo|add\s+to\s+do|todo|task)\s+/i, '');
+      taskTitle = cleanText.trim();
+    }
+  }
+
+  if (taskTitle) {
+    taskTitle = taskTitle.charAt(0).toUpperCase() + taskTitle.slice(1);
+    const newTask = {
+      id: 'task-' + crypto.randomBytes(4).toString('hex'),
+      title: taskTitle,
+      status: 'todo',
+      priority: 'normal',
+      createdAt: new Date().toISOString()
+    };
+    db.tasks.push(newTask);
+    await writeDB(db);
     
     return {
-      consoleLogs: [`Executing Tool: search_notes("${query}")`, `Found ${results.length} matching notes.`],
-      response: `I searched for notes related to "${query}" and found ${results.length} result(s):\n\n` + 
-        results.map(n => `- **${n.title}**: ${n.summary}`).join('\n')
+      consoleLogs: [`Executing Tool: create_task("${taskTitle}")`, `Task created successfully on Task Board.`],
+      response: `Added! I have added **"${taskTitle}"** to your **To Do** tasks on the Task Board. 📋`
     };
   }
 
-  if (msg.includes('clip') || msg.includes('url') || msg.includes('http')) {
+  // 1.5. Daily Digest generation
+  if (msg.includes('daily digest') || msg.includes('generate digest') || msg.includes('morning briefing')) {
+    const openTasks = db.tasks.filter(t => t.status !== 'done');
+    const openConflicts = db.conflicts.filter(c => c.status === 'unresolved');
+    const currentSprouts = db.sprouts;
+
+    const userNotes = db.notes.filter(n => !n.id.startsWith('note-digest-') && !n.title.startsWith('Daily Digest'));
+    let revisitSection = 'No notes to revisit.';
+    if (userNotes.length > 0) {
+      const randomIndex = Math.floor(Math.random() * userNotes.length);
+      const randomNote = userNotes[randomIndex];
+      revisitSection = `*${randomNote.title}*\n> ${randomNote.summary || randomNote.content.substring(0, 150) + '...'}`;
+    }
+
+    const digestTitle = `Daily Digest - ${new Date().toLocaleDateString()}`;
+    const digestContent = `### Daily Briefing Summary
+
+**Open Tasks (${openTasks.length}):**
+${openTasks.map(t => `- [ ] ${t.title} (Priority: ${t.priority || 'normal'})`).join('\n') || 'No open tasks today!'}
+
+**Unresolved Conflicts (${openConflicts.length}):**
+${openConflicts.map(c => `- 🔴 ${c.description}`).join('\n') || 'No semantic contradictions found.'}
+
+**New Concept Sprouts (${currentSprouts.length}):**
+${currentSprouts.map(s => `- 💡 **${s.title}**: ${s.description}`).join('\n') || 'No new concept sprouts generated.'}
+
+---
+
+**Memory Consolidation (Revisit Note of the Day):**
+${revisitSection}
+`;
+
+    const digestNote = {
+      id: 'note-digest-' + crypto.randomBytes(4).toString('hex'),
+      title: digestTitle,
+      content: digestContent,
+      createdAt: new Date().toISOString()
+    };
+    
+    db.notes.push(digestNote);
+    await writeDB(db);
+    await runIngestionAgent(digestNote.id);
+
+    return {
+      consoleLogs: [`Executing Tool: generate_daily_digest()`, `Daily Digest note generated: "${digestTitle}"`],
+      response: `Done! I have generated your **${digestTitle}** note and ran it through the Ingestion Agent. You can view it in your Notes Library. 📰`
+    };
+  }
+
+  // 2. Emailing Notes
+  if (msg.includes('email') || (msg.includes('send') && msg.includes('note') && msg.includes('to'))) {
+    const emailMatch = userMsg.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+    if (emailMatch) {
+      const targetEmail = emailMatch[0];
+      const latestNote = db.notes[db.notes.length - 1];
+      if (!latestNote) {
+        return {
+          consoleLogs: [`Executing Tool: send_email("${targetEmail}")`, `Error: No notes found in database.`],
+          response: `I tried to send an email to **${targetEmail}**, but you don't have any notes in your library yet!`
+        };
+      }
+      
+      const emailSubject = `MindSync Note: ${latestNote.title}`;
+      const emailBody = latestNote.content || latestNote.summary || '';
+      
+      try {
+        const result = await sendRealEmail(db.settings, targetEmail, emailSubject, emailBody);
+        if (result) {
+          return {
+            consoleLogs: [
+              `Executing Tool: send_email("${targetEmail}")`,
+              `Sandbox Ethereal mail dispatched.`,
+              `Preview link generated.`
+            ],
+            response: `Sent to Sandbox! 📧 Since you haven't configured SMTP credentials in Settings, I sent it via a temporary Ethereal testing account. You can view the sent email here: [Open Sandbox Inbox](${result})`
+          };
+        }
+        return {
+          consoleLogs: [
+            `Executing Tool: send_email("${targetEmail}")`,
+            `SMTP Host: ${db.settings.smtpHost}`,
+            `Sent email with subject: "${emailSubject}"`
+          ],
+          response: `Sent! 📧 I have successfully emailed your latest note, **"${latestNote.title}"**, to **${targetEmail}**.`
+        };
+      } catch (e) {
+        return {
+          consoleLogs: [
+            `Executing Tool: send_email("${targetEmail}")`,
+            `SMTP error: ${e.message}`
+          ],
+          response: `I tried to email the latest note, but I couldn't send it: **${e.message}**.\n\nPlease open **Settings** (gear icon / button at the bottom left) and make sure your **Email SMTP Configuration** is set up correctly.`
+        };
+      }
+    }
+  }
+
+  // URL clip — actually call the real web clipper
+  if (msg.includes('http') || ((msg.includes('clip') || msg.includes('add') || msg.includes('save')) && userMsg.match(/https?:\/\/[^\s]+/))) {
     const urlMatch = userMsg.match(/https?:\/\/[^\s]+/);
-    const url = urlMatch ? urlMatch[0] : 'https://example.com/article';
+    const url = urlMatch ? urlMatch[0] : null;
+    if (url) {
+      try {
+        const clipped = await runWebClipperAgent(url);
+        return {
+          consoleLogs: [`Executing Tool: clip_url("${url}")`, `Successfully clipped and saved note: "${clipped.title}"`],
+          response: `Done! I clipped **${url}** and saved it as a new note titled **"${clipped.title}"**. It has been summarised and added to your Notes library.`
+        };
+      } catch (e) {
+        return {
+          consoleLogs: [`Executing Tool: clip_url("${url}")`, `Error: ${e.message}`],
+          response: `I tried to clip ${url} but ran into an error: ${e.message}. Please check the URL is publicly accessible.`
+        };
+      }
+    }
+  }
+
+  // Note search — use Jaccard similarity
+  if (msg.includes('search') || msg.includes('find') || msg.includes('look for')) {
+    const query = userMsg.replace(/(search|find|look for|notes|about|for|similar|related to)\b/gi, '').trim();
+    const results = db.notes
+      .map(n => ({ note: n, score: getLocalSemanticSimilarity(query, `${n.title} ${(n.tags || []).join(' ')} ${n.summary || ''}`) }))
+      .filter(r => r.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5)
+      .map(r => r.note);
+    if (results.length === 0) {
+      return {
+        consoleLogs: [`Executing Tool: search_notes("${query}")`, `No matching notes found.`],
+        response: `I couldn't find any notes related to **"${query}"**. Try different keywords or check your Notes library.`
+      };
+    }
     return {
-      consoleLogs: [`Executing Tool: clip_url("${url}")`, `Successfully clipped and ingested article content.`],
-      response: `I clipped the URL: ${url}. A new note titled "Mock Clipped Article" has been added and ingested.`
+      consoleLogs: [`Executing Tool: search_notes("${query}")`, `Found ${results.length} matching note(s).`],
+      response: `Here are the notes I found for **"${query}"**:\n\n` +
+        results.map(n => `- **${n.title}**: ${n.summary || n.content?.slice(0, 120) + '...'}`).join('\n')
     };
   }
 
-  if (msg.includes('task') || msg.includes('todo') || msg.includes('action')) {
+  // List tasks
+  if (msg.includes('task') || msg.includes('todo') || msg.includes('action item')) {
     const tasks = db.tasks.filter(t => t.status !== 'done');
+    if (tasks.length === 0) {
+      return {
+        consoleLogs: [`Executing Tool: list_tasks()`, `No open tasks found.`],
+        response: `You have no open tasks right now. Great job! 🎉`
+      };
+    }
     return {
-      consoleLogs: [`Executing Tool: list_tasks()`, `Found ${tasks.length} open tasks.`],
+      consoleLogs: [`Executing Tool: list_tasks()`, `Found ${tasks.length} open task(s).`],
       response: `Here are your open action items:\n\n` +
-        tasks.map(t => `- [ ] **${t.title}** (Priority: ${t.priority.toUpperCase()})`).join('\n')
+        tasks.map(t => `- [ ] **${t.title}** (Priority: ${(t.priority || 'normal').toUpperCase()})`).join('\n')
     };
   }
 
+  // List conflicts
   if (msg.includes('conflict') || msg.includes('contradict')) {
+    const latestNote = db.notes[db.notes.length - 1];
+    const checkThisOnly = msg.includes('this') && latestNote;
+    
+    if (checkThisOnly) {
+      const relevantConflicts = db.conflicts.filter(c => 
+        c.status === 'unresolved' && 
+        c.conflictingNoteIds && 
+        c.conflictingNoteIds.includes(latestNote.id)
+      );
+      
+      if (relevantConflicts.length === 0) {
+        return {
+          consoleLogs: [`Checking conflicts for latest note: "${latestNote.title}"`, `No conflicts found.`],
+          response: `I checked your latest note **"${latestNote.title}"** against your other notes. No semantic conflicts or contradictions were detected. Everything is consistent!`
+        };
+      }
+      
+      return {
+        consoleLogs: [`Checking conflicts for latest note: "${latestNote.title}"`, `Found ${relevantConflicts.length} conflict(s).`],
+        response: `Yes, I found a contradiction involving your latest note **"${latestNote.title}"**:\n\n` +
+          relevantConflicts.map(c => `- 🔴 **Conflict**: ${c.description}\n  *Suggested Resolution*: ${c.resolution}`).join('\n')
+      };
+    }
+
     const conflicts = db.conflicts.filter(c => c.status === 'unresolved');
+    if (conflicts.length === 0) {
+      return {
+        consoleLogs: [`Executing Tool: list_conflicts()`, `No unresolved conflicts.`],
+        response: `Your Second Brain has no unresolved conflicts. Everything looks consistent! ✅`
+      };
+    }
     return {
-      consoleLogs: [`Executing Tool: list_conflicts()`, `Found ${conflicts.length} unresolved conflicts.`],
-      response: `Here are the unresolved semantic conflicts in your Second Brain:\n\n` +
+      consoleLogs: [`Executing Tool: list_conflicts()`, `Found ${conflicts.length} unresolved conflict(s).`],
+      response: `Here are the unresolved conflicts in your Second Brain:\n\n` +
         conflicts.map(c => `- 🔴 **Conflict**: ${c.description}\n  *Suggested Resolution*: ${c.resolution}`).join('\n')
     };
   }
 
+  // List sprouts
   if (msg.includes('sprout') || msg.includes('idea') || msg.includes('concept')) {
+    if (db.sprouts.length === 0) {
+      return {
+        consoleLogs: [`Executing Tool: list_sprouts()`, `No concept sprouts found.`],
+        response: `You don't have any concept sprouts yet. Add more notes and the agent will automatically generate ideas from them.`
+      };
+    }
     return {
-      consoleLogs: [`Executing Tool: list_sprouts()`, `Found ${db.sprouts.length} concepts.`],
-      response: `Here are the generated concept sprouts:\n\n` +
+      consoleLogs: [`Executing Tool: list_sprouts()`, `Found ${db.sprouts.length} concept sprout(s).`],
+      response: `Here are your concept sprouts:\n\n` +
         db.sprouts.map(s => `- 💡 **${s.title}**: ${s.description}`).join('\n')
     };
   }
 
-  if (msg.includes('create note') || msg.includes('add note')) {
+  // Create note
+  if (msg.includes('create note') || msg.includes('add note') || msg.includes('new note')) {
+    const titleMatch = userMsg.match(/(?:titled?|called?|named?)\s+"?([^"]+)"?/i);
+    const title = titleMatch ? titleMatch[1].trim() : 'New Note';
+    const contentMatch = userMsg.match(/(?:content|with)\s*[:\-]?\s*(.+)$/i);
+    const content = contentMatch ? contentMatch[1].trim() : '';
+    const newN = {
+      id: 'note-' + require('crypto').randomBytes(4).toString('hex'),
+      title: title,
+      content: content,
+      createdAt: new Date().toISOString()
+    };
+    db.notes.push(newN);
+    await writeDB(db);
+    await runIngestionAgent(newN.id);
     return {
-      consoleLogs: [`Executing Tool: create_note("New Note", "Content")`, `Note created and ingested.`],
-      response: `I created a new note titled "New Note". The Ingestion Agent has processed it and extracted action items.`
+      consoleLogs: [`Executing Tool: create_note("${title}")`, `Note created and ingested successfully.`],
+      response: `Done! I created a new note titled **"${title}"** and ran it through the Ingestion Agent. Check your Notes library.`
     };
   }
 
+  // Default help
   return {
-    consoleLogs: ['No tool matches, responding conversationally.'],
-    response: `Welcome to MindSync AI! I can help you manage your Knowledge Graph. Try asking me:\n` +
-      `- "Search notes for architecture"\n` +
-      `- "Show my open tasks"\n` +
-      `- "List semantic conflicts"\n` +
-      `- "What ideas/sprouts do I have?"\n` +
-      `- "Clip URL https://example.com/article"`
+    consoleLogs: ['No specific tool matched — responding with help.'],
+    response: `Hi! Here's what you can ask me:\n\n- **"Clip https://example.com"** — Save any webpage as a note\n- **"Find notes about [topic]"** — Search your notes\n- **"Show my open tasks"** — List your action items\n- **"List conflicts"** — Show contradictions in your notes\n- **"Show my ideas"** — Browse concept sprouts\n- **"Create a note titled X with content Y"** — Add a new note\n- **"I need to [task]"** — Add a task to your To Do board\n- **"Email the latest note to [email]"** — Email your latest note`
   };
 }
 
@@ -1559,10 +1853,20 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      const systemPrompt = `You are the MindSync AI Chat Agent, a personal knowledge concierge.
+      const role = body.role || 'concierge';
+      let systemPrompt = '';
+      if (role === 'critic') {
+        systemPrompt = `You are the MindSync AI Chat Agent acting as a Critical Analyst. You take an analytical, skeptical approach. Whenever notes or questions are searched or read, point out inconsistencies, conflicts, logical leaps, or potential vulnerabilities in assumptions. Be constructive but critical.`;
+      } else if (role === 'creative') {
+        systemPrompt = `You are the MindSync AI Chat Agent acting as a Creative Synthesizer. You connect topically distant concepts, suggest analogies, and propose creative sprout ideas. Break away from standard logical summaries to think outside the box.`;
+      } else {
+        systemPrompt = `You are the MindSync AI Chat Agent, a personal knowledge concierge.`;
+      }
+
+      systemPrompt += `
       You MUST respond in JSON format with exactly one of these structures:
       - Direct message: { "message": "your markdown message reply" }
-      - Tool execution: { "toolCall": { "name": "search_notes" | "clip_url" | "list_tasks" | "list_conflicts" | "list_sprouts" | "create_note" | "run_action", "arguments": { ... } } }
+      - Tool execution: { "toolCall": { "name": "search_notes" | "clip_url" | "list_tasks" | "list_conflicts" | "list_sprouts" | "create_note" | "run_action" | "create_task" | "send_email", "arguments": { ... } } }
 
       Arguments schema:
       - search_notes: { "query": "string" }
@@ -1571,6 +1875,8 @@ const server = http.createServer(async (req, res) => {
       - list_conflicts: {}
       - list_sprouts: {}
       - create_note: { "title": "string", "content": "string" }
+      - create_task: { "title": "string" }
+      - send_email: { "email": "string", "noteId": "string" }
       - run_action: { "actionName": "string" }
 
       Select the toolCall branch whenever the user requests actions matching those capabilities. Otherwise reply conversationally.`;
@@ -1616,6 +1922,34 @@ const server = http.createServer(async (req, res) => {
             await writeDB(db);
             await runIngestionAgent(newN.id);
             resultText = `Created and ingested note: "${newN.title}" (${newN.id})`;
+          } else if (tool === 'create_task') {
+            const newTask = {
+              id: 'task-' + crypto.randomBytes(4).toString('hex'),
+              title: sanitizeInput(args.title),
+              status: 'todo',
+              priority: 'normal',
+              createdAt: new Date().toISOString()
+            };
+            db.tasks.push(newTask);
+            await writeDB(db);
+            resultText = `Created task: "${newTask.title}"`;
+          } else if (tool === 'send_email') {
+            const email = args.email;
+            const targetNote = db.notes.find(n => n.id === args.noteId) || db.notes[db.notes.length - 1];
+            if (targetNote) {
+              try {
+                const resLink = await sendRealEmail(db.settings, email, `MindSync Note: ${targetNote.title}`, targetNote.content || targetNote.summary || '');
+                if (resLink) {
+                  resultText = `Emailed note "${targetNote.title}" to ${email} via Sandbox. Preview URL is: ${resLink}`;
+                } else {
+                  resultText = `Emailed note "${targetNote.title}" to ${email}`;
+                }
+              } catch (err) {
+                resultText = `Error emailing note: ${err.message}. Please configure SMTP settings.`;
+              }
+            } else {
+              resultText = `Error: No note found to email.`;
+            }
           } else if (tool === 'run_action') {
             const action = db.actions.find(a => a.name.toLowerCase().includes(args.actionName.toLowerCase()));
             if (action) {
@@ -1636,7 +1970,7 @@ const server = http.createServer(async (req, res) => {
         }
       } catch (err) {
         consoleLogs.push(`Agent bypass: running local mock handler. (${err.message})`);
-        const mockResult = mockChatProcessor(body.message, db);
+        const mockResult = await mockChatProcessor(body.message, db, role);
         consoleLogs = consoleLogs.concat(mockResult.consoleLogs);
         finalResponse = mockResult.response;
       }
@@ -1666,6 +2000,21 @@ const server = http.createServer(async (req, res) => {
       await writeDB(db);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(task));
+      return;
+    }
+
+    if (pathname.startsWith('/api/tasks/') && req.method === 'DELETE') {
+      const id = pathname.substring(11);
+      const index = db.tasks.findIndex(t => t.id === id);
+      if (index === -1) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Task not found' }));
+        return;
+      }
+      db.tasks.splice(index, 1);
+      await writeDB(db);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true }));
       return;
     }
 
@@ -1770,6 +2119,26 @@ const server = http.createServer(async (req, res) => {
       res.end(JSON.stringify(stats));
       return;
     }
+    if (pathname === '/api/settings' && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(db.settings || {}));
+      return;
+    }
+
+    if (pathname === '/api/settings' && req.method === 'POST') {
+      const body = await getRequestBody(req);
+      db.settings = {
+        smtpHost: sanitizeInput(body.smtpHost),
+        smtpPort: sanitizeInput(body.smtpPort || '587'),
+        smtpUser: sanitizeInput(body.smtpUser),
+        smtpPass: sanitizeInput(body.smtpPass)
+      };
+      await writeDB(db);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(db.settings));
+      return;
+    }
+
 
 
 

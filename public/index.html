@@ -255,6 +255,13 @@
                 <div class="message-content">Hello! I am your MindSync agent. I can help you search, summarize, create, and refine notes. Try asking: <em>"Find notes about security configuration"</em>.</div>
               </div>
             </div>
+            <div class="chat-suggestions">
+              <button class="suggestion-pill">Show my open tasks</button>
+              <button class="suggestion-pill">List conflicts</button>
+              <button class="suggestion-pill">Show my ideas</button>
+              <button class="suggestion-pill">Find notes about security</button>
+              <button class="suggestion-pill">Generate daily digest</button>
+            </div>
             <div class="chat-input-bar">
               <input type="text" id="chat-user-input" placeholder="Type a message or command (e.g. list tasks)...">
               <button id="btn-send-chat" class="primary-btn">Send</button>
@@ -438,6 +445,24 @@
         <label for="settings-token">API Secret (Bearer Token)</label>
         <input type="password" id="settings-token" placeholder="Bearer Token…">
         <small>Match the <code>API_SECRET</code> in your <code>.env</code> file. Defaults to <code>mindsync_secret_passphrase_2026</code>.</small>
+      </div>
+      <hr style="border: 0; border-top: 1px solid var(--border); margin: 15px 0;">
+      <h4>Email SMTP Configuration</h4>
+      <div class="form-group" style="margin-top: 10px;">
+        <label for="settings-smtp-host">SMTP Host</label>
+        <input type="text" id="settings-smtp-host" placeholder="smtp.gmail.com">
+      </div>
+      <div class="form-group">
+        <label for="settings-smtp-port">SMTP Port</label>
+        <input type="text" id="settings-smtp-port" placeholder="587">
+      </div>
+      <div class="form-group">
+        <label for="settings-smtp-user">SMTP Username / Email</label>
+        <input type="text" id="settings-smtp-user" placeholder="example@gmail.com">
+      </div>
+      <div class="form-group">
+        <label for="settings-smtp-pass">SMTP Password / App Password</label>
+        <input type="password" id="settings-smtp-pass" placeholder="App password...">
       </div>
       <div class="modal-footer">
         <button id="btn-save-settings" class="primary-btn">Save Credentials</button>
