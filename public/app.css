@@ -116,6 +116,93 @@ h1, h2, h3, h4, h5, h6 {
   flex-shrink: 0;
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
+  transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: visible;
+}
+
+/* Clip the text content but not the toggle button */
+.sidebar > div,
+.sidebar > .sidebar-footer {
+  overflow: hidden;
+  width: 100%;
+}
+
+/* ── Collapsed state ── */
+.sidebar.collapsed {
+  width: 60px;
+  padding: 20px 8px;
+}
+
+.sidebar.collapsed .logo-text,
+.sidebar.collapsed .nav-item span,
+.sidebar.collapsed .version-label,
+.sidebar.collapsed #connection-status {
+  opacity: 0;
+  pointer-events: none;
+  width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  transition: opacity 0.15s, width 0.25s;
+}
+
+.sidebar.collapsed .logo-text,
+.sidebar.collapsed .nav-item span,
+.sidebar.collapsed .version-label,
+.sidebar.collapsed #connection-status {
+  transition: opacity 0.1s;
+}
+
+.sidebar:not(.collapsed) .logo-text,
+.sidebar:not(.collapsed) .nav-item span,
+.sidebar:not(.collapsed) .version-label,
+.sidebar:not(.collapsed) #connection-status {
+  opacity: 1;
+  transition: opacity 0.2s 0.1s;
+}
+
+.sidebar.collapsed .logo-area {
+  justify-content: center;
+}
+
+.sidebar.collapsed .nav-item {
+  justify-content: center;
+  padding: 10px;
+}
+
+.sidebar.collapsed #btn-show-settings {
+  justify-content: center;
+  padding: 10px;
+}
+
+/* Collapse toggle button */
+.btn-collapse {
+  position: absolute;
+  top: 20px;
+  right: -12px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 10;
+  transition: background 0.15s, color 0.15s, transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  flex-shrink: 0;
+}
+
+.btn-collapse:hover {
+  background: rgba(255,255,255,0.1);
+  color: var(--text);
+}
+
+.sidebar.collapsed .btn-collapse {
+  transform: rotate(180deg);
+  right: -12px;
 }
 
 .logo-area {

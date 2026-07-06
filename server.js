@@ -337,8 +337,34 @@ function cleanHTML(html) {
 
 async function runWebClipperAgent(url) {
   console.log(`[Web Clipper Agent] Scraping page: ${url}`);
-  const { body } = await fetchURL(url);
-  const { title, description, content } = cleanHTML(body);
+
+  let title = 'Clipped Article';
+  let description = '';
+  let content = '';
+  let clippedFully = true;
+
+  try {
+    const { body } = await fetchURL(url);
+    ({ title, description, content } = cleanHTML(body));
+  } catch (err) {
+    // Graceful fallback for paywalled / access-restricted pages (403, 401, etc.)
+    clippedFully = false;
+    console.warn(`[Web Clipper Agent] Could not fetch full content (${err.message}). Saving as reference note.`);
+
+    // Try to derive title from URL path
+    try {
+      const u = new URL(url);
+      const pathParts = u.pathname.split('/').filter(Boolean);
+      title = pathParts[pathParts.length - 1]
+        .replace(/[-_]/g, ' ')
+        .replace(/\b\w/g, c => c.toUpperCase()) || 'Clipped Reference';
+    } catch (_) {
+      title = 'Clipped Reference';
+    }
+
+    description = `This page could not be fully fetched (${err.message}). It may be behind a paywall or require login.`;
+    content = `This is a reference note for: ${url}\n\nThe page could not be scraped automatically.\nReason: ${err.message}\n\nYou can manually add notes about this article here.`;
+  }
 
   const db = await readDB();
   const noteId = 'note-' + crypto.randomBytes(4).toString('hex');
@@ -346,7 +372,8 @@ async function runWebClipperAgent(url) {
     id: noteId,
     title: title || 'Clipped Source',
     content: `Source URL: ${url}\nDescription: ${description}\n\n${content}`,
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    tags: clippedFully ? [] : ['reference', 'paywall']
   };
 
   db.notes.push(newNote);
@@ -802,6 +829,19 @@ const server = http.createServer(async (req, res) => {
 
       res.writeHead(201, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(newNote));
+      return;
+    }
+
+    if (pathname.startsWith('/api/notes/') && req.method === 'GET') {
+      const id = pathname.substring(11);
+      const note = db.notes.find(n => n.id === id);
+      if (!note) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Note not found.' }));
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(note));
       return;
     }
 
