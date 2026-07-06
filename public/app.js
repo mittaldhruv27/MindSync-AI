@@ -17,16 +17,20 @@ function apiFetch(url, options = {}) {
   };
   return fetch(url, options).then(async (res) => {
     if (res.status === 401) {
-      document.getElementById('connection-status').classList.add('disconnected');
-      document.getElementById('connection-status').innerHTML = '<span class="indicator"></span> Unauthorized Secret';
+      const statusEl = document.getElementById('connection-status');
+      statusEl.classList.remove('connected');
+      statusEl.classList.add('disconnected');
+      statusEl.innerHTML = '<span class="indicator"></span> Unauthorized';
       throw new Error('Unauthorized');
     }
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.error || `HTTP error ${res.status}`);
     }
-    document.getElementById('connection-status').classList.remove('disconnected');
-    document.getElementById('connection-status').innerHTML = '<span class="indicator"></span> Agent Server Online';
+    const statusEl = document.getElementById('connection-status');
+    statusEl.classList.remove('disconnected');
+    statusEl.classList.add('connected');
+    statusEl.innerHTML = '<span class="indicator"></span> Online';
     return res.json();
   });
 }
@@ -108,22 +112,22 @@ async function loadAllData() {
 
 // --- MODULE 1: NAVIGATION ---
 function initNavigation() {
-  const navItems = document.querySelectorAll('.nav-item');
+  const navItems = document.querySelectorAll('.nav-item[data-panel]');
   const sections = document.querySelectorAll('.panel-section');
-  
+
   navItems.forEach(item => {
     item.addEventListener('click', () => {
       const panelId = item.dataset.panel;
-      
+
       navItems.forEach(n => n.classList.remove('active'));
       sections.forEach(s => s.classList.remove('active'));
-      
+
       item.classList.add('active');
       const targetSection = document.getElementById(`panel-${panelId}`);
       if (targetSection) {
         targetSection.classList.add('active');
       }
-      
+
       // Special canvas graph trigger
       if (panelId === 'graph' && graphCanvas) {
         setTimeout(() => {
@@ -290,8 +294,8 @@ function renderNotesList(notes) {
         ${(note.tags || []).map(t => `<span class="tag-pill">${t}</span>`).join('')}
       </div>
       <div class="note-card-footer">
-        <span>📅 ${new Date(note.createdAt).toLocaleDateString()}</span>
-        <span>🔗 ${note.seeAlso ? note.seeAlso.length : 0} links</span>
+        <span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> ${new Date(note.createdAt).toLocaleDateString()}</span>
+        <span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg> ${note.seeAlso ? note.seeAlso.length : 0} links</span>
       </div>
     `;
     card.addEventListener('click', () => showFullNote(note.id));
@@ -868,7 +872,7 @@ function renderConflictsList(conflicts) {
 
   const unresolved = conflicts.filter(c => c.status === 'unresolved');
   if (unresolved.length === 0) {
-    container.innerHTML = '<p class="placeholder-text">🔴 No unresolved knowledge contradictions detected in your Second Brain.</p>';
+    container.innerHTML = '<p class="placeholder-text"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px;color:var(--green)"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg> No unresolved knowledge contradictions detected in your Second Brain.</p>';
     return;
   }
 
@@ -880,7 +884,7 @@ function renderConflictsList(conflicts) {
       <h3>Knowledge Contradiction Detected</h3>
       <p class="conflict-desc">${conflict.description}</p>
       <div class="conflict-resolution-box">
-        <strong>💡 Suggested Resolution:</strong>
+        <strong><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:6px;color:var(--accent)"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A5 5 0 0 0 8 8c0 1 .3 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg> Suggested Resolution:</strong>
         <p>${conflict.resolution}</p>
       </div>
       <div class="conflict-actions">
@@ -947,7 +951,7 @@ function renderSproutsList(sprouts) {
     card.className = 'sprout-card glass-panel';
     card.innerHTML = `
       <div>
-        <h3>💡 ${sprout.title}</h3>
+        <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:6px;color:var(--accent)"><path d="M7 20h10"/><path d="M10 20c5.5-2.5.8-6.4 3-10"/><path d="M9.5 9.4c1.1.8 1.8 2.2 2.3 3.7-2 .4-3.5.4-4.8-.3-1.2-.6-2.3-1.9-3-4.2 2.8-.5 4.4 0 5.5.8z"/><path d="M14.1 6a7 7 0 0 0-1.1 4c1.9-.1 3.3-.6 4.3-1.4 1-1 1.6-2.3 1.7-4.6-2.7.1-4 1-4.9 2z"/></svg> ${sprout.title}</h3>
         <p>${sprout.description}</p>
       </div>
       <div class="sprout-actions">
