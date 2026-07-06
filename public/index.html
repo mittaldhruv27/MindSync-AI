@@ -370,7 +370,7 @@
         <div class="panel-header-row">
           <div class="panel-header">
             <h1>Action Runner</h1>
-            <p class="subtitle">Execute webhooks, folder exports, and backups.</p>
+            <p class="subtitle">Execute folder exports, backups, and digests.</p>
           </div>
           <button id="btn-add-action" class="primary-btn">+ Create Action</button>
         </div>
@@ -380,7 +380,10 @@
             <div id="actions-list" class="actions-list"></div>
           </div>
           <div class="actions-logs-panel glass-panel">
-            <h3>Execution Activity History</h3>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+              <h3 style="margin:0;">Execution Activity History</h3>
+              <button id="btn-clear-action-logs" style="font-size:0.72rem;padding:4px 10px;background:transparent;border:1px solid var(--border);color:var(--text-muted);border-radius:6px;cursor:pointer;">Clear</button>
+            </div>
             <div id="action-runs-logs" class="console-logs">
               <div class="log-entry system">Action Runner listening for task triggers...</div>
             </div>
@@ -496,12 +499,13 @@
         <label for="new-action-type">Action Type</label>
         <select id="new-action-type">
           <option value="export">Export to Markdown Folder</option>
-          <option value="webhook">Webhook POST Endpoint</option>
+          <option value="email">Send Email Summary</option>
+          <option value="digest">Daily Digest (Built-in)</option>
         </select>
       </div>
-      <div class="form-group">
-        <label for="new-action-target">Target Destination</label>
-        <input type="text" id="new-action-target" placeholder="Folder path or Webhook URL">
+      <div class="form-group" id="action-target-group">
+        <label for="new-action-target" id="action-target-label">Folder Path</label>
+        <input type="text" id="new-action-target" placeholder="e.g. ./exports/mindsync">
       </div>
       <div class="modal-footer">
         <button id="btn-cancel-action" class="danger-btn">Cancel</button>
